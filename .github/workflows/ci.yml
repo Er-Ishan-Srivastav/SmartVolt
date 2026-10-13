@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: smartvolt_test
+          POSTGRES_USER: smartvolt
+          POSTGRES_PASSWORD: smartvolt_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U smartvolt -d smartvolt_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://smartvolt:smartvolt_test@localhost:5432/smartvolt_test
+      ENVIRONMENT: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: alembic upgrade head
+      - run: pytest
+      - run: ruff check .

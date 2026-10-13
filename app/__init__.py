@@ -1,0 +1,1 @@
+"""SmartVolt application package."""

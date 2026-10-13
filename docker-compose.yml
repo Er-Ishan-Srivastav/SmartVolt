@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: smartvolt
+      POSTGRES_USER: smartvolt
+      POSTGRES_PASSWORD: smartvolt_dev_only
+    ports:
+      - "5432:5432"
+    volumes:
+      - smartvolt_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartvolt -d smartvolt"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://smartvolt:smartvolt_dev_only@db:5432/smartvolt
+      APP_NAME: SmartVolt API
+      API_V1_PREFIX: /api/v1
+      ENVIRONMENT: development
+      DEFAULT_TARIFF_PER_KWH: "8.00"
+      SIMULATOR_INTERVAL_SECONDS: "3600"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  smartvolt_postgres_data:
