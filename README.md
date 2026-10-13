@@ -2,7 +2,7 @@
 
 SmartVolt is a full-stack project foundation for simulating prepaid electricity meters in hostels and shared accommodation. It models rooms, tenants, meters, wallet recharges, consumption readings, a ledger, and support tickets without requiring physical IoT hardware.
 
-> **Current milestone:** first working full-stack foundation. The React dashboard connects to the FastAPI meter, wallet, and usage APIs. Authentication/authorization, payment-provider integration, and production deployment hardening remain follow-on work. The recharge API simulates a payment and must not be treated as a real payment system.
+> **Current milestone:** polished full-stack prototype. The React workspace has independent Overview, Usage history, Transactions, Room details, Settings, and Help & support pages; persistent day/night themes; responsive navigation; animated page transitions; usage/cost analytics; searchable transactions with CSV export; room relay controls; and support tickets connected to the API. Authentication/authorization, payment-provider integration, and production deployment hardening remain follow-on work. The recharge API simulates a payment and must not be treated as a real payment system.
 
 ## Stack
 
@@ -61,7 +61,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. Vite proxies `/api` requests to the FastAPI server at `http://127.0.0.1:8000`. On a fresh seed, the frontend defaults to user ID `2` (Ishan); check the seed output if using an existing database. The backend currently has no authentication.
+Open `http://127.0.0.1:5173`. The workspace pages are available at `/overview`, `/usage`, `/transactions`, `/rooms`, `/settings`, and `/support`. The top-bar theme control switches between Night mode and Day mode; the choice is saved in browser local storage. Vite proxies `/api` requests to the FastAPI server at `http://127.0.0.1:8000`. On a fresh seed, the frontend defaults to user ID `2` (Ishan); check the seed output if using an existing database. The backend currently has no authentication.
 
 The default `.env.example` uses a local SQLite database to reduce setup friction. For team development, prefer the PostgreSQL setup below so everyone uses the same database engine as CI and deployment.
 

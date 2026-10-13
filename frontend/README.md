@@ -1,21 +1,23 @@
-# SmartVolt Dashboard
+# SmartVolt frontend
 
-React + TypeScript + Vite frontend for the SmartVolt simulation API.
+React + TypeScript + Vite user interface for the SmartVolt simulated prepaid energy meter.
 
-## Local development
+## Run
 
 ```bash
 npm install
 npm run dev
 ```
 
-Vite serves the dashboard on `http://127.0.0.1:5173` and proxies `/api/*` to `http://127.0.0.1:8000`. Set `VITE_API_PROXY_TARGET` to override the proxy target (Docker Compose uses `http://api:8000`).
+The app uses the Vite proxy configured in `vite.config.ts` to forward `/api` to the FastAPI service.
 
-## Build
+## Workspace pages
 
-```bash
-npm run build
-npm run preview
-```
+- `/overview` — balance, energy summary, consumption chart, meter status and recent recharges.
+- `/usage` — day/week/month aggregates, units-versus-cost chart toggle and recent individual readings.
+- `/transactions` — recharge history, status filtering, search, and CSV export.
+- `/rooms` — meter configuration, tariff, balance and simulated relay control.
+- `/settings` — persistent day/night theme, low-balance reminder and demo resident ID.
+- `/support` — create and review support tickets.
 
-This is a demo UI. It has no real sign-in and no payment gateway. Tenant identity fields are temporary scaffolding until the authentication module is implemented.
+Navigation uses the History API, so page links work independently and browser back/forward is supported. Night mode is the default; the selected theme and a few demo preferences are stored locally in the browser. The application is a simulation only: it is not connected to a physical electrical relay or a real payment provider.
