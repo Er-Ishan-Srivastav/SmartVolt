@@ -28,7 +28,7 @@ from app.schemas import (
 )
 from app.services.billing import consume_units, recharge_meter, set_power_status
 from app.security import get_current_user, get_optional_user, hash_password, issue_access_token, require_admin, verify_password
-from app.simulation import APPLIANCES, APPLIANCE_BY_ID, BUILTIN_SCENARIOS
+from app.simulation import APPLIANCES, APPLIANCE_BY_ID
 
 router = APIRouter()
 
