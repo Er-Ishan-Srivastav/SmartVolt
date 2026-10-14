@@ -33,7 +33,13 @@ Example login body: `{"username":"admin","password":"Admin123!"}`. Use the retur
 |---|---|---|
 | `GET` | `/admin/rooms` | List rooms, meters and resident accounts |
 | `POST` | `/admin/rooms` | Create a room/meter, initial ledger entry, and optionally the first tenant |
+| `PATCH` | `/admin/rooms/{room_id}` | Update room number and meter tariff |
+| `DELETE` | `/admin/rooms/{room_id}` | Delete room, meter, and its meter history; assigned tenant logins are disabled and accounts unassigned |
 | `POST` | `/admin/rooms/{room_id}/tenants` | Add a resident to an existing room |
+| `PATCH` | `/admin/tenants/{tenant_id}` | Update tenant name, username, phone, or password |
+| `DELETE` | `/admin/tenants/{tenant_id}` | Remove tenant from the room and disable login while retaining historical account references |
+
+Room deletion permanently removes the meter's balance, readings, recharge records, active appliances, and wallet ledger entries. Tenant removal is intentionally non-destructive to account history: it clears the room assignment and login credentials instead of deleting the underlying user row.
 
 ## Appliance and scenario simulation
 
@@ -54,7 +60,7 @@ Scenario applications dated today create readings and debit the wallet. A past d
 - `401`: a signed-in account is required or the token is invalid/expired.
 - `403`: wrong role or resident attempting to access another room's meter.
 - `404`: referenced meter, room, appliance or scenario not found.
-- `409`: empty/off meter, duplicate room number or a conflicting recharge idempotency key.
+- `409`: empty/off meter, duplicate room number/username/phone or a conflicting recharge idempotency key.
 - `422`: invalid request values, malformed daily schedule or unknown appliance ID.
 
 ## Security limitation

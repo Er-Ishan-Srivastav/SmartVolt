@@ -325,3 +325,112 @@ def test_admin_can_apply_scenario_to_all_rooms_when_one_meter_is_empty(client, t
     assert empty_result["partial"] is True
     assert empty_result["reading_count"] == 0
     assert any(Decimal(item["units_used"]) > 0 for item in results if item["meter_id"] != empty_meter_id)
+
+
+def _admin_headers(client, test_session_factory, username="manageadmin"):
+    from app.models import User
+    from app.security import hash_password
+
+    with test_session_factory() as db:
+        if not db.scalar(select(User).where(User.username == username)):
+            db.add(User(name="Admin", username=username, password_hash=hash_password("admin-pass-123"), role="ADMIN"))
+            db.commit()
+    login = client.post("/api/v1/auth/login", json={"username": username, "password": "admin-pass-123"})
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+def test_admin_can_edit_room_and_updates_meter_tariff(client, test_session_factory, demo_ids):
+    headers = _admin_headers(client, test_session_factory)
+
+    updated = client.patch(
+        f"/api/v1/admin/rooms/{demo_ids['room_id']}",
+        headers=headers,
+        json={"room_no": "101A", "tariff_per_kwh": "9.2500"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["room_no"] == "101A"
+    assert updated.json()["meter"]["tariff_per_kwh"] == "9.2500"
+
+    duplicate = client.patch(
+        f"/api/v1/admin/rooms/{demo_ids['room_id']}",
+        headers=headers,
+        json={"room_no": "202", "tariff_per_kwh": "9.2500"},
+    )
+    assert duplicate.status_code == 409
+
+    with test_session_factory() as db:
+        assert db.get(Meter, demo_ids["meter_id"]).tariff_per_kwh == Decimal("9.2500")
+
+
+def test_admin_can_edit_and_remove_tenant_without_losing_history(client, test_session_factory, demo_ids):
+    from app.models import User
+    from app.security import hash_password
+
+    headers = _admin_headers(client, test_session_factory)
+    with test_session_factory() as db:
+        tenant = db.get(User, demo_ids["user_id"])
+        tenant.name = "Original Tenant"
+        tenant.username = "originaltenant"
+        tenant.phone = "9991110000"
+        tenant.password_hash = hash_password("tenant-pass-123")
+        tenant.role = "RESIDENT"
+        db.commit()
+        tenant_id = tenant.id
+
+    updated = client.patch(
+        f"/api/v1/admin/tenants/{tenant_id}",
+        headers=headers,
+        json={"name": "Updated Tenant", "username": "updatedtenant", "phone": "9991110001", "password": "new-pass-123"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "Updated Tenant"
+    assert updated.json()["username"] == "updatedtenant"
+    assert updated.json()["phone"] == "9991110001"
+
+    removed = client.delete(f"/api/v1/admin/tenants/{tenant_id}", headers=headers)
+    assert removed.status_code == 200, removed.text
+    assert "preserved" in removed.json()["message"]
+    assert client.post("/api/v1/auth/login", json={"username": "updatedtenant", "password": "new-pass-123"}).status_code == 401
+
+    with test_session_factory() as db:
+        tenant = db.get(User, tenant_id)
+        assert tenant is not None
+        assert tenant.room_id is None
+        assert tenant.username is None
+        assert tenant.password_hash is None
+        assert tenant.name == "Updated Tenant"
+
+
+def test_admin_can_delete_room_and_cleans_meter_history(client, test_session_factory, demo_ids):
+    from app.models import ActiveAppliance, ConsumptionLog, Room, User
+    from app.security import hash_password
+
+    headers = _admin_headers(client, test_session_factory)
+    with test_session_factory() as db:
+        tenant = db.get(User, demo_ids["user_id"])
+        tenant.name = "Room Tenant"
+        tenant.username = "roomtenant"
+        tenant.phone = "9992220000"
+        tenant.password_hash = hash_password("tenant-pass-123")
+        tenant.role = "RESIDENT"
+        meter = db.get(Meter, demo_ids["meter_id"])
+        db.add(ConsumptionLog(meter_id=meter.id, units_used=Decimal("0.5000"), cost=Decimal("4.00"), balance_after=Decimal("6.00")))
+        db.add(ActiveAppliance(meter_id=meter.id, appliance_id="router", appliance_name="Router", watts=12))
+        db.add(Recharge(meter_id=meter.id, user_id=tenant.id, amount=Decimal("5.00"), status="SUCCESSFUL"))
+        db.commit()
+        tenant_id = tenant.id
+        meter_id = meter.id
+
+    deleted = client.delete(f"/api/v1/admin/rooms/{demo_ids['room_id']}", headers=headers)
+    assert deleted.status_code == 200, deleted.text
+
+    with test_session_factory() as db:
+        assert db.get(Room, demo_ids["room_id"]) is None
+        assert db.get(Meter, meter_id) is None
+        assert db.get(User, tenant_id).room_id is None
+        assert db.get(User, tenant_id).username is None
+        assert list(db.scalars(select(ConsumptionLog).where(ConsumptionLog.meter_id == meter_id))) == []
+        assert list(db.scalars(select(ActiveAppliance).where(ActiveAppliance.meter_id == meter_id))) == []
+        assert list(db.scalars(select(Recharge).where(Recharge.meter_id == meter_id))) == []
+        assert list(db.scalars(select(WalletLedger).where(WalletLedger.meter_id == meter_id))) == []

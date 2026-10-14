@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Home, KeyRound, LoaderCircle, LogIn, LogOut, Plus, ShieldCheck, UserPlus, Users, Zap } from 'lucide-react'
+import { Home, KeyRound, LoaderCircle, LogIn, LogOut, Pencil, Plus, Save, ShieldCheck, Trash2, UserPlus, Users, X, Zap } from 'lucide-react'
 
 type Notice = { type: 'success' | 'error' | 'info'; text: string }
 type Account = { id: number; name: string; username: string; role: 'ADMIN' | 'RESIDENT'; room_id: number | null }
@@ -50,6 +50,14 @@ export default function AdminPage({ onNotice, onRefresh }: Props) {
   const [tenantUsername, setTenantUsername] = useState('')
   const [tenantPassword, setTenantPassword] = useState('')
   const [saving, setSaving] = useState(false)
+  const [editingRoomId, setEditingRoomId] = useState<number | null>(null)
+  const [editingRoomNo, setEditingRoomNo] = useState('')
+  const [editingTariff, setEditingTariff] = useState('')
+  const [editingTenantId, setEditingTenantId] = useState<number | null>(null)
+  const [editingTenantName, setEditingTenantName] = useState('')
+  const [editingTenantUsername, setEditingTenantUsername] = useState('')
+  const [editingTenantPhone, setEditingTenantPhone] = useState('')
+  const [editingTenantPassword, setEditingTenantPassword] = useState('')
 
   const loadRooms = useCallback(async () => {
     if (account?.role !== 'ADMIN') return
@@ -121,6 +129,85 @@ export default function AdminPage({ onNotice, onRefresh }: Props) {
     finally { setSaving(false) }
   }
 
+  function beginEditRoom(room: Room) {
+    setSelectedRoomId(room.id)
+    setEditingRoomId(room.id)
+    setEditingRoomNo(room.room_no)
+    setEditingTariff(room.meter?.tariff_per_kwh ?? '8')
+  }
+
+  async function updateRoom(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!editingRoomId) return
+    setSaving(true)
+    try {
+      const updated = await request<Room>(`/admin/rooms/${editingRoomId}`, {
+        method: 'PATCH', body: JSON.stringify({ room_no: editingRoomNo, tariff_per_kwh: editingTariff }),
+      })
+      setEditingRoomId(null)
+      onNotice({ type: 'success', text: `Room ${updated.room_no} was updated.` })
+      await loadRooms()
+      await onRefresh()
+    } catch (error) { onNotice({ type: 'error', text: (error as Error).message }) }
+    finally { setSaving(false) }
+  }
+
+  async function deleteRoom(room: Room) {
+    const confirmed = window.confirm(`Permanently delete Room ${room.room_no}? Its meter, balance, usage readings, recharge records and ledger history will be deleted. Residents will be unassigned and their sign-in disabled. This cannot be undone.`)
+    if (!confirmed) return
+    setSaving(true)
+    try {
+      await request<{ message: string }>(`/admin/rooms/${room.id}`, { method: 'DELETE' })
+      if (editingRoomId === room.id) setEditingRoomId(null)
+      setEditingTenantId(null)
+      onNotice({ type: 'success', text: `Room ${room.room_no} was deleted. Associated meter history was removed.` })
+      await loadRooms()
+      await onRefresh()
+    } catch (error) { onNotice({ type: 'error', text: (error as Error).message }) }
+    finally { setSaving(false) }
+  }
+
+  function beginEditTenant(tenant: Tenant) {
+    setEditingTenantId(tenant.id)
+    setEditingTenantName(tenant.name)
+    setEditingTenantUsername(tenant.username ?? '')
+    setEditingTenantPhone(tenant.phone ?? '')
+    setEditingTenantPassword('')
+  }
+
+  async function updateTenant(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!editingTenantId) return
+    setSaving(true)
+    const payload: { name: string; username: string; phone: string | null; password?: string } = {
+      name: editingTenantName, username: editingTenantUsername, phone: editingTenantPhone || null,
+    }
+    if (editingTenantPassword) payload.password = editingTenantPassword
+    try {
+      const updated = await request<Tenant>(`/admin/tenants/${editingTenantId}`, {
+        method: 'PATCH', body: JSON.stringify(payload),
+      })
+      setEditingTenantId(null)
+      setEditingTenantPassword('')
+      onNotice({ type: 'success', text: `Tenant ${updated.name} was updated.` })
+      await loadRooms()
+    } catch (error) { onNotice({ type: 'error', text: (error as Error).message }) }
+    finally { setSaving(false) }
+  }
+
+  async function deleteTenant(tenant: Tenant) {
+    const confirmed = window.confirm(`Remove ${tenant.name} from Room ${tenant.room_id}? Their sign-in will be disabled. Historical billing records and support history will be retained.`)
+    if (!confirmed) return
+    setSaving(true)
+    try {
+      await request<{ message: string }>(`/admin/tenants/${tenant.id}`, { method: 'DELETE' })
+      if (editingTenantId === tenant.id) setEditingTenantId(null)
+      onNotice({ type: 'success', text: `${tenant.name} was removed and their sign-in was disabled.` })
+      await loadRooms()
+    } catch (error) { onNotice({ type: 'error', text: (error as Error).message }) }
+    finally { setSaving(false) }
+  }
+
   if (!account || !localStorage.getItem(TOKEN_KEY) || account.role !== 'ADMIN') {
     return <div className="feature-stack">
       <section className="feature-hero surface-card">
@@ -153,8 +240,9 @@ export default function AdminPage({ onNotice, onRefresh }: Props) {
     <div className="feature-columns">
       <section className="panel surface-card feature-panel">
         <div className="feature-section-heading"><div><h2>Room directory</h2><p>Select a room to add residents.</p></div><button className="icon-button" onClick={() => void loadRooms()} aria-label="Refresh rooms"><LoaderCircle className={loading ? 'spin' : ''} size={17}/></button></div>
-        {loading ? <p className="feature-empty">Loading room directory…</p> : rooms.length === 0 ? <p className="feature-empty">No rooms yet. Create the first one below.</p> : <div className="feature-room-list">{rooms.map((room) => <button type="button" key={room.id} className={`feature-room-row ${selectedRoomId === room.id ? 'selected' : ''}`} onClick={() => setSelectedRoomId(room.id)}><span className="feature-room-icon"><Home size={16}/></span><span className="feature-room-main"><strong>Room {room.room_no}</strong><small>{room.tenants.length} resident{room.tenants.length === 1 ? '' : 's'} · Meter #{room.meter?.id ?? '—'}</small></span><span className="feature-room-balance">₹{Number(room.meter?.current_balance ?? 0).toFixed(2)}<small>{room.meter?.power_status ? 'Power on' : 'Power off'}</small></span></button>)}</div>}
-        <div className="feature-section-heading feature-subheading"><div><h2>Open a room</h2><p>Room, tariff, opening credit, and optional first tenant.</p></div></div>
+        {loading ? <p className="feature-empty">Loading room directory…</p> : rooms.length === 0 ? <p className="feature-empty">No rooms yet. Create the first one below.</p> : <div className="feature-room-list">{rooms.map((room) => <div className="feature-room-item" key={room.id}><button type="button" className={`feature-room-row ${selectedRoomId === room.id ? 'selected' : ''}`} onClick={() => setSelectedRoomId(room.id)}><span className="feature-room-icon"><Home size={16}/></span><span className="feature-room-main"><strong>Room {room.room_no}</strong><small>{room.tenants.length} resident{room.tenants.length === 1 ? '' : 's'} · Meter #{room.meter?.id ?? '—'}</small></span><span className="feature-room-balance">₹{Number(room.meter?.current_balance ?? 0).toFixed(2)}<small>{room.meter?.power_status ? 'Power on' : 'Power off'}</small></span></button><div className="feature-item-actions"><button type="button" className="icon-button" title={`Edit Room ${room.room_no}`} aria-label={`Edit Room ${room.room_no}`} onClick={() => beginEditRoom(room)} disabled={saving}><Pencil size={15}/></button><button type="button" className="icon-button danger-action" title={`Delete Room ${room.room_no}`} aria-label={`Delete Room ${room.room_no}`} onClick={() => void deleteRoom(room)} disabled={saving}><Trash2 size={15}/></button></div></div>)}</div>}
+        {editingRoomId !== null && <form className="feature-form feature-form-grid feature-edit-card" onSubmit={updateRoom}><div className="feature-form-divider">Edit room details</div><label>Room number<input className="field-input" value={editingRoomNo} onChange={(event) => setEditingRoomNo(event.target.value)} required maxLength={20}/></label><label>Tariff (₹/kWh)<input className="field-input" type="number" min="0.01" step="0.0001" value={editingTariff} onChange={(event) => setEditingTariff(event.target.value)} required/></label><div className="feature-edit-actions"><button className="button primary" type="submit" disabled={saving}>{saving ? <LoaderCircle size={15} className="spin"/> : <Save size={15}/>} Save changes</button><button className="button secondary" type="button" onClick={() => setEditingRoomId(null)} disabled={saving}><X size={15}/> Cancel</button></div></form>}
+        <div className="feature-section-heading feature-subheading"><div><h2>Create a room</h2><p>Room, tariff, opening credit, and optional first tenant.</p></div></div>
         <form className="feature-form feature-form-grid" onSubmit={createRoom}>
           <label>Room number<input className="field-input" value={roomNo} onChange={(event) => setRoomNo(event.target.value)} required maxLength={20} placeholder="102"/></label>
           <label>Tariff (₹/kWh)<input className="field-input" type="number" min="0.01" step="0.01" value={tariff} onChange={(event) => setTariff(event.target.value)} required/></label>
@@ -178,7 +266,7 @@ export default function AdminPage({ onNotice, onRefresh }: Props) {
           <button className="button primary" type="submit" disabled={saving || !rooms.length}><UserPlus size={15}/> Add tenant</button>
         </form>
         <div className="feature-form-divider">{selectedRoom ? `Room ${selectedRoom.room_no} directory` : 'Tenant directory'}</div>
-        {selectedRoom?.tenants.length ? <div className="feature-tenant-list">{selectedRoom.tenants.map((tenant) => <div className="feature-tenant-row" key={tenant.id}><span className="feature-tenant-avatar">{tenant.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()}</span><span><strong>{tenant.name}</strong><small>{tenant.username ?? 'No username'} · {tenant.phone ?? 'Phone not set'}</small></span><span className="status-badge successful">{tenant.role.toLowerCase()}</span></div>)}</div> : <p className="feature-empty">No resident accounts in this room yet.</p>}
+        {selectedRoom?.tenants.length ? <div className="feature-tenant-list">{selectedRoom.tenants.map((tenant) => editingTenantId === tenant.id ? <form className="feature-tenant-edit feature-form" key={tenant.id} onSubmit={updateTenant}><div className="feature-form-divider">Edit {tenant.name}</div><label>Full name<input className="field-input" value={editingTenantName} onChange={(event) => setEditingTenantName(event.target.value)} maxLength={100} required/></label><label>Username<input className="field-input" value={editingTenantUsername} onChange={(event) => setEditingTenantUsername(event.target.value)} minLength={3} maxLength={60} required/></label><label>Phone<input className="field-input" value={editingTenantPhone} onChange={(event) => setEditingTenantPhone(event.target.value)} maxLength={15} placeholder="Optional"/></label><label>New password<input className="field-input" type="password" value={editingTenantPassword} onChange={(event) => setEditingTenantPassword(event.target.value)} minLength={8} maxLength={200} placeholder="Leave blank to keep current password"/></label><div className="feature-edit-actions"><button className="button primary" type="submit" disabled={saving}>{saving ? <LoaderCircle size={15} className="spin"/> : <Save size={15}/>} Save changes</button><button className="button secondary" type="button" onClick={() => setEditingTenantId(null)} disabled={saving}><X size={15}/> Cancel</button></div></form> : <div className="feature-tenant-row" key={tenant.id}><span className="feature-tenant-avatar">{tenant.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()}</span><span className="feature-tenant-main"><strong>{tenant.name}</strong><small>{tenant.username ?? 'No username'} · {tenant.phone ?? 'Phone not set'}</small></span><span className="status-badge successful">{tenant.role.toLowerCase()}</span><div className="feature-item-actions"><button type="button" className="icon-button" title={`Edit ${tenant.name}`} aria-label={`Edit ${tenant.name}`} onClick={() => beginEditTenant(tenant)} disabled={saving}><Pencil size={15}/></button><button type="button" className="icon-button danger-action" title={`Remove ${tenant.name}`} aria-label={`Remove ${tenant.name}`} onClick={() => void deleteTenant(tenant)} disabled={saving}><Trash2 size={15}/></button></div></div>)}</div> : <p className="feature-empty">No resident accounts in this room yet.</p>}
         <p className="feature-footnote"><Zap size={13}/> Room and meter creation is transactional. Opening credit is recorded in the wallet ledger.</p>
       </section>
     </div>

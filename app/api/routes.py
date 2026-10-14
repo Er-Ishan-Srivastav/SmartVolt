@@ -6,7 +6,7 @@ import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core import settings
@@ -24,7 +24,7 @@ from app.schemas import (
     TicketCreate,
     TicketRead,
     UsageReport,
-    ActiveApplianceRead, AdminRoomCreate, AdminRoomRead, AdminTenantRead, ApplianceRead, ApplianceToggle, AuthAccountRead, LoginCreate, LoginRead, ScenarioApplyCreate, ScenarioApplyItem, ScenarioApplyRead, ScenarioCreate, ScenarioRead, SimulationTickCreate, SimulationTickRead, TenantCreate,
+    ActiveApplianceRead, AdminRoomCreate, AdminRoomRead, AdminRoomUpdate, AdminTenantRead, ApplianceRead, ApplianceToggle, AuthAccountRead, LoginCreate, LoginRead, ScenarioApplyCreate, ScenarioApplyItem, ScenarioApplyRead, ScenarioCreate, ScenarioRead, SimulationTickCreate, SimulationTickRead, TenantCreate, TenantUpdate,
 )
 from app.services.billing import consume_units, recharge_meter, set_power_status
 from app.security import get_current_user, get_optional_user, hash_password, issue_access_token, require_admin, verify_password
@@ -294,6 +294,68 @@ def admin_create_room(
     return _admin_room_read(created)
 
 
+@router.patch("/admin/rooms/{room_id}", response_model=AdminRoomRead, tags=["administration"])
+def admin_update_room(
+    room_id: int,
+    payload: AdminRoomUpdate,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> AdminRoomRead:
+    room = db.get(Room, room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    room_no = payload.room_no.strip()
+    if not room_no:
+        raise HTTPException(status_code=422, detail="Room number cannot be blank")
+    duplicate = db.scalar(
+        select(Room).where(func.lower(Room.room_no) == room_no.lower(), Room.id != room_id)
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="That room number already exists")
+
+    room.room_no = room_no
+    if room.meter is not None:
+        room.meter.tariff_per_kwh = payload.tariff_per_kwh
+    db.commit()
+    refreshed = db.scalar(select(Room).where(Room.id == room_id))
+    return _admin_room_read(refreshed)
+
+
+@router.delete("/admin/rooms/{room_id}", tags=["administration"])
+def admin_delete_room(
+    room_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    room = db.get(Room, room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    meter = db.scalar(select(Meter).where(Meter.room_id == room_id))
+    if meter is not None:
+        # Explicit child deletes keep this operation portable across SQLite and
+        # PostgreSQL and avoid ORM attempts to null non-nullable meter foreign keys.
+        db.execute(delete(ActiveAppliance).where(ActiveAppliance.meter_id == meter.id))
+        db.execute(delete(ConsumptionLog).where(ConsumptionLog.meter_id == meter.id))
+        db.execute(delete(Recharge).where(Recharge.meter_id == meter.id))
+        db.execute(delete(WalletLedger).where(WalletLedger.meter_id == meter.id))
+        db.execute(delete(Meter).where(Meter.id == meter.id))
+
+    # Preserve user IDs for unrelated audit records, but revoke tenant sign-in
+    # and free unique usernames/phone numbers when their room is removed.
+    assigned_users = list(db.scalars(select(User).where(User.room_id == room_id)).all())
+    for assigned_user in assigned_users:
+        assigned_user.room_id = None
+        if assigned_user.role == "RESIDENT":
+            assigned_user.username = None
+            assigned_user.password_hash = None
+            assigned_user.phone = None
+    db.execute(delete(Room).where(Room.id == room_id))
+    db.commit()
+    return {"message": "Room deleted; its meter history was removed and resident logins were disabled."}
+
+
 @router.post("/admin/rooms/{room_id}/tenants", response_model=AdminTenantRead, status_code=201, tags=["administration"])
 def admin_add_tenant(
     room_id: int,
@@ -325,6 +387,74 @@ def admin_add_tenant(
 @router.get("/simulation/appliances", response_model=list[ApplianceRead], tags=["simulation"])
 def list_appliances() -> list[dict]:
     return APPLIANCES
+
+
+@router.patch("/admin/tenants/{tenant_id}", response_model=AdminTenantRead, tags=["administration"])
+def admin_update_tenant(
+    tenant_id: int,
+    payload: TenantUpdate,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> AdminTenantRead:
+    tenant = db.get(User, tenant_id)
+    if tenant is None or tenant.role != "RESIDENT" or tenant.room_id is None or not tenant.username:
+        raise HTTPException(status_code=404, detail="Active tenant not found")
+    changes = payload.model_fields_set
+    if not changes:
+        raise HTTPException(status_code=422, detail="Provide at least one tenant field to update")
+
+    if "name" in changes:
+        name = (payload.name or "").strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Tenant name cannot be blank")
+        tenant.name = name
+    if "username" in changes:
+        username = (payload.username or "").strip()
+        if not username:
+            raise HTTPException(status_code=422, detail="Username cannot be blank")
+        duplicate = db.scalar(
+            select(User).where(func.lower(User.username) == username.lower(), User.id != tenant_id)
+        )
+        if duplicate:
+            raise HTTPException(status_code=409, detail="That username is already in use")
+        tenant.username = username
+    if "phone" in changes:
+        phone = (payload.phone or "").strip() or None
+        if phone:
+            duplicate_phone = db.scalar(select(User).where(User.phone == phone, User.id != tenant_id))
+            if duplicate_phone:
+                raise HTTPException(status_code=409, detail="That phone number is already assigned")
+        tenant.phone = phone
+    if payload.password:
+        tenant.password_hash = hash_password(payload.password)
+
+    db.commit()
+    db.refresh(tenant)
+    return AdminTenantRead(
+        id=tenant.id, name=tenant.name, username=tenant.username, phone=tenant.phone,
+        room_id=tenant.room_id, role=tenant.role,
+    )
+
+
+@router.delete("/admin/tenants/{tenant_id}", tags=["administration"])
+def admin_delete_tenant(
+    tenant_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    tenant = db.get(User, tenant_id)
+    if tenant is None or tenant.role != "RESIDENT" or tenant.room_id is None or not tenant.username:
+        raise HTTPException(status_code=404, detail="Active tenant not found")
+
+    # Keep the underlying user row so billing records and support tickets retain
+    # their foreign-key identity. Removing the tenant revokes login and unassigns
+    # the room; the name remains available for historical records.
+    tenant.room_id = None
+    tenant.username = None
+    tenant.password_hash = None
+    tenant.phone = None
+    db.commit()
+    return {"message": "Tenant removed from the room; sign-in disabled and historical records preserved."}
 
 
 @router.get("/simulation/scenarios", response_model=list[ScenarioRead], tags=["simulation"])

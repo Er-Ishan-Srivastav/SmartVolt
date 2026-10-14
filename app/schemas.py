@@ -143,11 +143,23 @@ class AdminRoomCreate(BaseModel):
     first_tenant_password: str | None = Field(default=None, min_length=8, max_length=200)
 
 
+class AdminRoomUpdate(BaseModel):
+    room_no: str = Field(min_length=1, max_length=20)
+    tariff_per_kwh: Decimal = Field(gt=0, max_digits=10, decimal_places=4)
+
+
 class TenantCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     username: str = Field(min_length=3, max_length=60)
     password: str = Field(min_length=8, max_length=200)
     phone: str | None = Field(default=None, max_length=15)
+
+
+class TenantUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=100)
+    username: str | None = Field(default=None, min_length=3, max_length=60)
+    phone: str | None = Field(default=None, max_length=15)
+    password: str | None = Field(default=None, min_length=8, max_length=200)
 
 
 class ApplianceRead(BaseModel):

@@ -83,7 +83,7 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to continue", headers={"WWW-Authenticate": "Bearer"})
     claims = decode_access_token(credentials.credentials)
     user = db.get(User, claims["sub"]) if claims else None
-    if user is None or user.role != claims.get("role"):
+    if user is None or user.role != claims.get("role") or not user.username or not user.password_hash:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired or invalid", headers={"WWW-Authenticate": "Bearer"})
     return user
 
@@ -103,6 +103,6 @@ def get_optional_user(
         return None
     claims = decode_access_token(credentials.credentials)
     user = db.get(User, claims["sub"]) if claims else None
-    if user is None or user.role != claims.get("role"):
+    if user is None or user.role != claims.get("role") or not user.username or not user.password_hash:
         return None
     return user
