@@ -14,6 +14,9 @@ dist/
 
 # Environment and local state
 .env
+.env.*
+!.env.example
+!.env.production.example
 *.db
 *.sqlite
 *.sqlite3

@@ -1,0 +1,16 @@
+{$SMARTVOLT_DOMAIN} {
+    encode zstd gzip
+
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        Strict-Transport-Security "max-age=31536000"
+    }
+
+    @api path /api/* /docs* /openapi.json /redoc*
+    reverse_proxy @api api:8000
+
+    reverse_proxy frontend:80
+}
