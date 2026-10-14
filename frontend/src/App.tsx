@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight,
-  BatteryCharging, Bell, Check, ChevronDown, CircleHelp, Clock3,
+  BatteryCharging, Bell, Check, ChevronDown, CircleHelp, Clock3, Cpu,
   CreditCard, Download, FileClock, Filter, Gauge, Home, LayoutDashboard, Leaf,
-  LifeBuoy, LoaderCircle, Menu, Moon, Plus, Power, ReceiptText, Search,
+  LifeBuoy, LoaderCircle, Menu, Moon, Plus, Power, ReceiptText, Search, Users,
   Settings, ShieldCheck, Sparkles, Sun, TrendingUp,
   Wallet, X, Zap, type LucideIcon,
 } from 'lucide-react'
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
+import AdminPage from './components/AdminPage'
+import LoadLabPage from './components/LoadLabPage'
 
 type Meter = {
   id: number; room_id: number; current_balance: string; power_status: boolean;
@@ -27,7 +29,8 @@ type Recharge = {
 type Reading = { id: number; meter_id: number; units_used: string; cost: string; balance_after: string; created_at: string }
 type Ticket = { id: number; user_id: number; issue_type: string; description: string; status: string; created_at: string }
 type ApiError = { detail?: string }
-type PageKey = 'overview' | 'usage' | 'transactions' | 'rooms' | 'settings' | 'support'
+type PageKey = 'overview' | 'usage' | 'transactions' | 'rooms' | 'simulation' | 'admin' | 'settings' | 'support'
+type Account = { id: number; name: string; username: string; role: 'ADMIN' | 'RESIDENT'; room_id: number | null }
 type Theme = 'dark' | 'light'
 type Notice = { type: 'success' | 'error' | 'info'; text: string }
 
@@ -36,15 +39,17 @@ const pageMeta: Record<PageKey, { label: string; title: string; description: str
   usage: { label: 'Usage history', title: 'Consumption analytics', description: 'Explore patterns, compare time ranges, and inspect meter readings.', icon: Activity },
   transactions: { label: 'Transactions', title: 'Wallet & transactions', description: 'A clear ledger of the credits added to your meter.', icon: ReceiptText },
   rooms: { label: 'Room details', title: 'Your room & meter', description: 'Review room details, tariff information, and simulated relay status.', icon: Home },
+  simulation: { label: 'Load Lab', title: 'Appliance simulation', description: 'Build realistic daily load profiles and watch the prepaid meter respond.', icon: Cpu },
+  admin: { label: 'Admin console', title: 'Rooms & residents', description: 'Create rooms, issue tenant accounts, and manage hostel meters.', icon: Users },
   settings: { label: 'Settings', title: 'Workspace preferences', description: 'Personalize the SmartVolt experience on this device.', icon: Settings },
   support: { label: 'Help & support', title: 'How can we help?', description: 'Raise a support ticket and keep track of your requests.', icon: LifeBuoy },
 }
 const routeByPath: Record<string, PageKey> = {
   '/': 'overview', '/overview': 'overview', '/usage': 'usage', '/transactions': 'transactions',
-  '/rooms': 'rooms', '/settings': 'settings', '/support': 'support',
+  '/rooms': 'rooms', '/simulation': 'simulation', '/admin': 'admin', '/settings': 'settings', '/support': 'support',
 }
 const routeForPage: Record<PageKey, string> = {
-  overview: '/overview', usage: '/usage', transactions: '/transactions', rooms: '/rooms', settings: '/settings', support: '/support',
+  overview: '/overview', usage: '/usage', transactions: '/transactions', rooms: '/rooms', simulation: '/simulation', admin: '/admin', settings: '/settings', support: '/support',
 }
 const money = (value: string | number) => new Intl.NumberFormat('en-IN', {
   style: 'currency', currency: 'INR', maximumFractionDigits: 2,
@@ -59,7 +64,7 @@ const greeting = () => {
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/v1${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('smartvolt:accessToken') ? { Authorization: `Bearer ${localStorage.getItem('smartvolt:accessToken')}` } : {}), ...(init?.headers ?? {}) },
   })
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as ApiError
@@ -92,6 +97,7 @@ function EmptyState({ icon: Icon, title, description, action }: { icon: LucideIc
 
 export default function App() {
   const [page, setPage] = useState<PageKey>(() => pageFromLocation())
+  const [accountLabel, setAccountLabel] = useState<Account | null>(() => { try { return JSON.parse(localStorage.getItem('smartvolt:account') ?? 'null') as Account | null } catch { return null } })
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('smartvolt:theme') as Theme) || 'dark')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [meters, setMeters] = useState<Meter[]>([])
@@ -124,6 +130,19 @@ export default function App() {
     setNotice(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
+
+  useEffect(() => {
+    const onAuthChanged = () => { try { setAccountLabel(JSON.parse(localStorage.getItem('smartvolt:account') ?? 'null') as Account | null) } catch { setAccountLabel(null) } }
+    window.addEventListener('smartvolt:auth-changed', onAuthChanged)
+    return () => window.removeEventListener('smartvolt:auth-changed', onAuthChanged)
+  }, [])
+
+  useEffect(() => {
+    if (accountLabel?.role !== 'RESIDENT') return
+    const assignedMeter = meters.find((item) => item.room_id === accountLabel.room_id)
+    if (String(accountLabel.id) !== userId) setUserId(String(accountLabel.id))
+    if (assignedMeter && assignedMeter.id !== meter?.id) setMeter(assignedMeter)
+  }, [accountLabel, meters, meter?.id, userId])
 
   useEffect(() => {
     const onPopState = () => { setPage(pageFromLocation()); setMobileNavOpen(false) }
@@ -233,9 +252,13 @@ export default function App() {
 
   const navGroups: { title: string; items: PageKey[] }[] = [
     { title: 'Workspace', items: ['overview', 'usage', 'transactions', 'rooms'] },
-    { title: 'Manage', items: ['settings', 'support'] },
+    { title: 'Simulation', items: ['simulation'] },
+    { title: 'Manage', items: ['admin', 'settings', 'support'] },
   ]
   const activeMeta = pageMeta[page]
+  const visibleMeters = accountLabel?.role === 'RESIDENT'
+    ? meters.filter((item) => item.room_id === accountLabel.room_id)
+    : meters
 
   const pageIntro = (eyebrow: string, title: string, description: string, actions?: ReactNode) => <div className="page-intro">
     <div className="intro-copy"><div className="eyebrow"><Sparkles size={14} /> {eyebrow}</div><h1>{title}</h1><p>{description}</p></div>
@@ -248,7 +271,7 @@ export default function App() {
       <a className="brand" href="/overview" onClick={(event) => { event.preventDefault(); navigate('overview') }}>
         <span className="brand-mark"><Zap size={22} fill="currentColor" /></span><span className="brand-copy"><strong>smartvolt<span>.</span></strong><small>ENERGY, MADE CLEAR</small></span>
       </a>
-      <div className="workspace-switcher"><span className="workspace-avatar">S</span><span><strong>Resident workspace</strong><small>Personal meter</small></span><ChevronDown size={15} /></div>
+      <div className="workspace-switcher"><span className="workspace-avatar">S</span><span><strong>{accountLabel?.role === 'ADMIN' ? 'Administrator workspace' : 'Resident workspace'}</strong><small>{accountLabel ? `${accountLabel.role.toLowerCase()} · ${accountLabel.username}` : 'Demo meter workspace'}</small></span><ChevronDown size={15} /></div>
       <nav className="sidebar-nav" aria-label="Primary navigation">
         {navGroups.map((group) => <div className="nav-group" key={group.title}><span className="side-caption">{group.title}</span>{group.items.map((key) => {
           const item = pageMeta[key]; const Icon = item.icon
@@ -259,21 +282,21 @@ export default function App() {
       </nav>
       <div className="sidebar-spacer" />
       <div className="eco-promo"><span className="eco-promo-icon"><Leaf size={18} /></span><strong>Make energy count</strong><p>Small changes create a more efficient home.</p><div className="eco-chart" aria-hidden="true"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div><button onClick={() => navigate('usage')}>Explore your usage <ArrowRight size={13} /></button></div>
-      <div className="sidebar-bottom"><div className="sidebar-divider" /><button className="nav-item" onClick={() => navigate('support')}><CircleHelp size={18}/><span>Help center</span></button><div className="profile-row"><div className="avatar">IS</div><div className="profile-copy"><strong>Ishan Srivastav</strong><small>Resident · Demo account</small></div><button className="icon-ghost" aria-label="Open settings" onClick={() => navigate('settings')}><Settings size={16}/></button></div></div>
+      <div className="sidebar-bottom"><div className="sidebar-divider" /><button className="nav-item" onClick={() => navigate('support')}><CircleHelp size={18}/><span>Help center</span></button><div className="profile-row"><div className="avatar">{(accountLabel?.name ?? 'Ishan Srivastav').split(/\s+/).map((part) => part[0]).slice(0,2).join('').toUpperCase()}</div><div className="profile-copy"><strong>{accountLabel?.name ?? 'Ishan Srivastav'}</strong><small>{accountLabel ? `${accountLabel.role.toLowerCase()} · ${accountLabel.username}` : 'Resident · Demo account'}</small></div><button className="icon-ghost" aria-label="Open settings" onClick={() => navigate('settings')}><Settings size={16}/></button></div></div>
     </aside>
     {mobileNavOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
 
     <main className="main-area">
       <header className="topbar">
         <div className="topbar-left"><button className="mobile-menu icon-button" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu size={19}/></button><div className="breadcrumb"><span>Workspace</span><span className="crumb-slash">/</span><strong>{activeMeta.label}</strong></div></div>
-        <div className="topbar-right"><span className={`system-status ${apiConnected ? 'connected' : 'disconnected'}`}><i />{apiConnected ? 'API connected' : 'API offline'}</span><span className="topbar-date"><Clock3 size={15}/>{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span><button className="theme-toggle" onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'day' : 'night'} mode`} title={`Switch to ${theme === 'dark' ? 'day' : 'night'} mode`}>{theme === 'dark' ? <Sun size={17}/> : <Moon size={17}/>}<span>{theme === 'dark' ? 'Day mode' : 'Night mode'}</span></button><button className="avatar mini" aria-label="Account settings" onClick={() => navigate('settings')}>IS</button></div>
+        <div className="topbar-right"><span className={`system-status ${apiConnected ? 'connected' : 'disconnected'}`}><i />{apiConnected ? 'API connected' : 'API offline'}</span><span className="topbar-date"><Clock3 size={15}/>{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span><button className="theme-toggle" onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'day' : 'night'} mode`} title={`Switch to ${theme === 'dark' ? 'day' : 'night'} mode`}>{theme === 'dark' ? <Sun size={17}/> : <Moon size={17}/>}<span>{theme === 'dark' ? 'Day mode' : 'Night mode'}</span></button><button className="avatar mini" aria-label="Account settings" onClick={() => navigate(accountLabel?.role === 'ADMIN' ? 'admin' : 'settings')}>{(accountLabel?.name ?? 'Ishan Srivastav').split(/\s+/).map((part) => part[0]).slice(0,2).join('').toUpperCase()}</button></div>
       </header>
 
       <div className="page-content page-enter" key={page}>
         {notice && <div className={`notice ${notice.type}`} role="status"><span>{notice.type === 'success' ? <Check size={17}/> : notice.type === 'error' ? <CircleHelp size={17}/> : <Bell size={17}/>} {notice.text}</span><button onClick={() => setNotice(null)} aria-label="Dismiss notification"><X size={15}/></button></div>}
 
         {page === 'overview' && <>
-          {pageIntro('YOUR ENERGY OVERVIEW', `${greeting()}, Ishan`, 'Here’s your room’s electricity snapshot for today.', <><label className="meter-select"><span>Meter</span><select value={meter?.id ?? ''} onChange={(event) => setMeter(meters.find((item) => item.id === Number(event.target.value)) ?? null)} aria-label="Select meter">{meters.map((item) => <option value={item.id} key={item.id}>Room {item.room_id} · #{item.id}</option>)}</select><ChevronDown size={14}/></label><button className="button primary" onClick={() => setShowRecharge(true)} disabled={!meter}><Plus size={16}/> Add money</button></>)}
+          {pageIntro(accountLabel?.role === 'ADMIN' ? 'ADMIN OVERVIEW' : 'YOUR ENERGY OVERVIEW', `${greeting()}, ${(accountLabel?.name ?? 'Ishan').split(/\s+/)[0]}`, accountLabel?.role === 'ADMIN' ? 'Review the selected meter and simulated load activity across your workspace.' : 'Here’s your room’s electricity snapshot for today.', <><label className="meter-select"><span>Meter</span><select value={meter?.id ?? ''} onChange={(event) => setMeter(visibleMeters.find((item) => item.id === Number(event.target.value)) ?? null)} aria-label="Select meter" disabled={!visibleMeters.length}>{visibleMeters.map((item) => <option value={item.id} key={item.id}>Room {item.room_id} · #{item.id}</option>)}</select><ChevronDown size={14}/></label><button className="button primary" onClick={() => setShowRecharge(true)} disabled={!meter}><Plus size={16}/> Add money</button></>)}
           {loading ? <div className="loading-state"><LoaderCircle className="spin" size={23}/> Connecting to SmartVolt…</div> : !meter ? <EmptyState icon={BatteryCharging} title="No meter connected yet" description="Seed the local database to create the demo room and meter." action={<code>python -m app.db.seed</code>}/> : <>
             {lowBalanceAlert && Number(meter.current_balance) < 150 && <div className="inline-alert"><span className="alert-icon"><Bell size={16}/></span><span><strong>Balance running low</strong><small>Your balance is below ₹150. Top up now to avoid an unexpected power cut.</small></span><button className="text-button" onClick={() => setShowRecharge(true)}>Recharge <ArrowRight size={14}/></button><button className="alert-close" onClick={() => setLowBalanceAlert(false)} aria-label="Dismiss"><X size={15}/></button></div>}
             <section className="metric-grid"><Metric label="Available balance" value={money(meter.current_balance)} detail={Number(meter.current_balance) > 0 ? 'Ready for consumption' : 'Recharge required'} icon={Wallet} tone="mint"/><Metric label="Energy consumed" value={`${Number(report?.total_units ?? 0).toFixed(2)} kWh`} detail={`${report?.reading_count ?? 0} readings · ${period === '1d' ? 'Today' : period === '7d' ? 'Last 7 days' : 'Last 30 days'}`} icon={Zap} tone="violet" trend="up"/><Metric label="Estimated cost" value={money(report?.total_cost ?? 0)} detail={`${money(meter.tariff_per_kwh)} per kWh`} icon={ReceiptText} tone="amber"/><Metric label="Room power" value={meter.power_status ? 'Enabled' : 'Disabled'} detail="Software relay simulation" icon={Power} tone={meter.power_status ? 'mint' : 'rose'}/></section>
@@ -312,7 +335,7 @@ export default function App() {
 
         {page === 'settings' && <>
           {pageIntro('PREFERENCES', 'Workspace preferences', 'Adjust how SmartVolt looks and how it keeps you informed.', <span className="saved-indicator"><Check size={14}/> Preferences save automatically</span>)}
-          <div className="settings-layout"><div className="settings-main"><article className="panel surface-card settings-panel"><SectionHeading title="Appearance" description="Choose an interface that works best for you."/><div className="theme-options"><button className={`theme-option ${theme === 'light' ? 'selected' : ''}`} onClick={() => setTheme('light')}><span className="theme-preview light-preview"><i/><i/><i/><b/></span><span><strong>Day mode</strong><small>Clean, bright workspace</small></span><span className="radio-dot"/></button><button className={`theme-option ${theme === 'dark' ? 'selected' : ''}`} onClick={() => setTheme('dark')}><span className="theme-preview dark-preview"><i/><i/><i/><b/></span><span><strong>Night mode</strong><small>Low-light, focused workspace</small></span><span className="radio-dot"/></button></div></article><article className="panel surface-card settings-panel"><SectionHeading title="Notifications" description="Choose which in-app reminders you want to see."/><div className="setting-row"><span className="setting-icon amber"><Bell size={17}/></span><span className="setting-copy"><strong>Low balance warning</strong><small>Show a reminder when the meter balance drops below ₹150.</small></span><button className={`switch-control ${lowBalanceAlert ? 'on' : ''}`} role="switch" aria-checked={lowBalanceAlert} aria-label="Low balance warning" onClick={() => setLowBalanceAlert((value) => !value)}><i/></button></div><div className="setting-row"><span className="setting-icon mint"><Activity size={17}/></span><span className="setting-copy"><strong>Live API status</strong><small>Display the connection state in the top navigation.</small></span><span className={`status-badge ${apiConnected ? 'successful' : 'failed'}`}><i/>{apiConnected ? 'Enabled' : 'Offline'}</span></div></article></div><aside className="settings-aside"><article className="panel surface-card account-card"><span className="account-avatar">IS</span><span className="account-type">DEMO ACCOUNT</span><h3>Ishan Srivastav</h3><p>Resident workspace</p><div className="account-divider"/><label htmlFor="resident-id">Resident user ID</label><input id="resident-id" className="field-input" type="number" min="1" value={userId} onChange={(event) => setUserId(event.target.value)}/><small className="field-help">Used to associate recharges and support tickets in this demo.</small><button className="button secondary full-width" onClick={() => navigate('support')}><LifeBuoy size={15}/> Get support</button></article><div className="settings-note"><ShieldCheck size={17}/><span><strong>Privacy by design</strong><small>Visual preferences are saved only in this browser. This app is still a simulation and is not connected to a physical meter.</small></span></div></aside></div>
+          <div className="settings-layout"><div className="settings-main"><article className="panel surface-card settings-panel"><SectionHeading title="Appearance" description="Choose an interface that works best for you."/><div className="theme-options"><button className={`theme-option ${theme === 'light' ? 'selected' : ''}`} onClick={() => setTheme('light')}><span className="theme-preview light-preview"><i/><i/><i/><b/></span><span><strong>Day mode</strong><small>Clean, bright workspace</small></span><span className="radio-dot"/></button><button className={`theme-option ${theme === 'dark' ? 'selected' : ''}`} onClick={() => setTheme('dark')}><span className="theme-preview dark-preview"><i/><i/><i/><b/></span><span><strong>Night mode</strong><small>Low-light, focused workspace</small></span><span className="radio-dot"/></button></div></article><article className="panel surface-card settings-panel"><SectionHeading title="Notifications" description="Choose which in-app reminders you want to see."/><div className="setting-row"><span className="setting-icon amber"><Bell size={17}/></span><span className="setting-copy"><strong>Low balance warning</strong><small>Show a reminder when the meter balance drops below ₹150.</small></span><button className={`switch-control ${lowBalanceAlert ? 'on' : ''}`} role="switch" aria-checked={lowBalanceAlert} aria-label="Low balance warning" onClick={() => setLowBalanceAlert((value) => !value)}><i/></button></div><div className="setting-row"><span className="setting-icon mint"><Activity size={17}/></span><span className="setting-copy"><strong>Live API status</strong><small>Display the connection state in the top navigation.</small></span><span className={`status-badge ${apiConnected ? 'successful' : 'failed'}`}><i/>{apiConnected ? 'Enabled' : 'Offline'}</span></div></article></div><aside className="settings-aside"><article className="panel surface-card account-card"><span className="account-avatar">{(accountLabel?.name ?? 'Ishan Srivastav').split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()}</span><span className="account-type">{accountLabel ? `${accountLabel.role} ACCOUNT` : 'DEMO ACCOUNT'}</span><h3>{accountLabel?.name ?? 'Ishan Srivastav'}</h3><p>{accountLabel?.role === 'ADMIN' ? 'Administrator workspace' : 'Resident workspace'}</p><div className="account-divider"/><label htmlFor="resident-id">Resident user ID</label><input id="resident-id" className="field-input" type="number" min="1" value={userId} onChange={(event) => setUserId(event.target.value)}/><small className="field-help">Used to associate recharges and support tickets in this demo.</small><button className="button secondary full-width" onClick={() => navigate('support')}><LifeBuoy size={15}/> Get support</button></article><div className="settings-note"><ShieldCheck size={17}/><span><strong>Privacy by design</strong><small>Visual preferences are saved only in this browser. This app is still a simulation and is not connected to a physical meter.</small></span></div></aside></div>
         </>}
 
         {page === 'support' && <>
@@ -320,6 +343,9 @@ export default function App() {
           <div className="support-layout"><article className="panel surface-card ticket-form-panel"><SectionHeading title="Raise a ticket" description="Share a few details and we’ll log the request."/><form className="support-form" onSubmit={submitTicket}><label htmlFor="ticket-type">Issue category</label><div className="select-wrap"><select id="ticket-type" value={ticketType} onChange={(event) => setTicketType(event.target.value)}><option>Meter or power issue</option><option>Balance or recharge</option><option>Incorrect usage data</option><option>Room details</option><option>Other</option></select><ChevronDown size={15}/></div><label htmlFor="ticket-description">Describe the issue</label><textarea id="ticket-description" rows={5} required minLength={5} maxLength={5000} placeholder="Tell us what happened and when you first noticed it…" value={ticketDescription} onChange={(event) => setTicketDescription(event.target.value)}/><div className="form-helper"><span>{ticketDescription.length}/5000 characters</span><span><ShieldCheck size={13}/> Saved to the demo database</span></div><button className="button primary full-width" type="submit" disabled={submittingTicket || !ticketDescription.trim()}>{submittingTicket ? <LoaderCircle size={16} className="spin"/> : <Plus size={16}/>} Submit support ticket</button></form></article><aside className="support-aside"><div className="support-help-card"><span className="support-illustration"><LifeBuoy size={26}/></span><h3>Need a hand?</h3><p>Include the affected meter ID and any relevant details so the issue is easy to understand.</p><div><span><Clock3 size={15}/> Ticket ID generated automatically</span><span><ShieldCheck size={15}/> Tracked in your workspace</span></div></div><article className="panel surface-card support-stat"><div><span>YOUR REQUESTS</span><strong>{tickets.length}</strong><small>Total support tickets</small></div><span className="metric-icon violet"><FileClock size={19}/></span></article></aside></div>
           <article className="panel surface-card table-panel support-tickets-panel"><SectionHeading title="Your support tickets" description="Requests associated with the resident ID in Settings." action={<button className="button secondary" onClick={() => void loadTickets()}><Activity size={15}/> Refresh</button>}/>{tickets.length ? <div className="ticket-list">{tickets.map((ticket) => <div className="ticket-row" key={ticket.id}><span className="ticket-type-icon"><LifeBuoy size={17}/></span><span className="ticket-copy"><strong>{ticket.issue_type}</strong><small>Ticket #{String(ticket.id).padStart(4, '0')} · {dateTime(ticket.created_at)}</small><p>{ticket.description}</p></span><span className={`status-badge ${ticket.status.toLowerCase()}`}><i/>{ticket.status.toLowerCase()}</span></div>)}</div> : <EmptyState icon={FileClock} title="No support tickets yet" description="Anything you submit through the form will appear here."/>}</article>
         </>}
+
+        {page === 'simulation' && <LoadLabPage meter={meter} meters={meters} onSelectMeter={(meterId) => setMeter(meters.find((item) => item.id === meterId) ?? null)} onNotice={setNotice} onRefresh={refresh}/>}
+        {page === 'admin' && <AdminPage onNotice={setNotice} onRefresh={refresh}/>}
 
         <footer className="page-footer"><span>© 2026 SmartVolt <span className="footer-separator">·</span> Prepaid energy, simplified</span><span><i className={apiConnected ? 'connected' : ''}/> {apiConnected ? 'Connected to your demo API' : 'Waiting for API connection'}</span></footer>
       </div>

@@ -2,8 +2,9 @@
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -26,6 +27,9 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
     phone: Mapped[str | None] = mapped_column(String(15), unique=True, nullable=True)
+    username: Mapped[str | None] = mapped_column(String(60), unique=True, index=True, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role: Mapped[str] = mapped_column(String(20), default="RESIDENT", server_default="RESIDENT", nullable=False)
     room_id: Mapped[int | None] = mapped_column(ForeignKey("rooms.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -76,6 +80,8 @@ class ConsumptionLog(Base):
     units_used: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
     cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     balance_after: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    source: Mapped[str] = mapped_column(String(30), default="MANUAL", server_default="MANUAL", nullable=False)
+    note: Mapped[str | None] = mapped_column(String(250), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     meter: Mapped[Meter] = relationship(back_populates="readings")
@@ -112,3 +118,39 @@ class SupportTicket(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="tickets")
+
+
+class ActiveAppliance(Base):
+    """Persisted appliance switches attached to a simulated meter."""
+
+    __tablename__ = "active_appliances"
+    __table_args__ = (UniqueConstraint("meter_id", "appliance_id", name="uq_active_appliance_meter_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    meter_id: Mapped[int] = mapped_column(ForeignKey("meters.id", ondelete="CASCADE"), nullable=False, index=True)
+    appliance_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    appliance_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    watts: Mapped[int] = mapped_column(Integer, nullable=False)
+    pending_kwh: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal("0.000000"), server_default="0", nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    meter: Mapped[Meter] = relationship()
+
+
+class SimulationScenario(Base):
+    """Built-in or user-authored daily appliance schedule."""
+
+    __tablename__ = "simulation_scenarios"
+    __table_args__ = (Index("ix_scenarios_audience_name", "audience", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    audience: Mapped[str] = mapped_column(String(20), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    blocks: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    owner: Mapped[User | None] = relationship()

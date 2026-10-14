@@ -24,6 +24,9 @@ services:
       ENVIRONMENT: development
       DEFAULT_TARIFF_PER_KWH: "8.00"
       SIMULATOR_INTERVAL_SECONDS: "3600"
+      AUTH_SECRET: ${AUTH_SECRET:-local-development-secret-change-before-deployment}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin123!}
     ports:
       - "8000:8000"
     depends_on:

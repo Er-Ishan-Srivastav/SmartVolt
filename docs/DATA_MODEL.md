@@ -11,6 +11,8 @@ erDiagram
     METERS ||--o{ CONSUMPTION_LOGS : records
     METERS ||--o{ WALLET_LEDGER : audits
     USERS ||--o{ TICKETS : raises
+    METERS ||--o{ ACTIVE_APPLIANCES : powers
+    USERS ||--o{ SIMULATION_SCENARIOS : authors
 ```
 
 - One room has at most one meter in this initial model; `meters.room_id` is unique.
@@ -19,6 +21,10 @@ erDiagram
 - `recharges` stores top-ups and an optional unique idempotency key to reduce accidental duplicate credits.
 - `wallet_ledger` is an audit trail: positive `amount` means credit, negative `amount` means consumption debit. `balance_after` makes individual entries easier to reconcile.
 - `tickets` tracks support issues independently from wallet transactions.
+- `users.username`, `users.password_hash`, and `users.role` provide local demo authentication. Roles are `ADMIN` or `RESIDENT`; password hashes are PBKDF2-SHA256 hashes.
+- `active_appliances` stores the appliances currently drawing simulated load for a meter. `pending_kwh` carries small fractional use between ticks so low-watt loads are not lost to reading rounding.
+- `simulation_scenarios` stores built-in daily templates and user-owned custom appliance schedules. Blocks capture a label, start/end minutes, and appliance IDs.
+- `consumption_logs.source` and `consumption_logs.note` distinguish manual readings, live load ticks, applied scenarios and pre-seeded historical telemetry.
 
 ## Reporting semantics
 

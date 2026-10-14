@@ -62,6 +62,8 @@ class ReadingRead(ORMModel):
     cost: Decimal
     balance_after: Decimal
     created_at: datetime
+    source: str = "MANUAL"
+    note: str | None = None
 
 
 class DailyUsage(BaseModel):
@@ -92,3 +94,136 @@ class TicketRead(ORMModel):
     description: str
     status: str
     created_at: datetime
+
+
+class LoginCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=60)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class AuthAccountRead(BaseModel):
+    id: int
+    name: str
+    username: str
+    role: Literal["ADMIN", "RESIDENT"]
+    room_id: int | None = None
+
+
+class LoginRead(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = 28800
+    account: AuthAccountRead
+
+
+class AdminTenantRead(ORMModel):
+    id: int
+    name: str
+    username: str | None
+    phone: str | None
+    room_id: int | None
+    role: str
+
+
+class AdminRoomRead(ORMModel):
+    id: int
+    room_no: str
+    created_at: datetime
+    meter: MeterRead | None = None
+    tenants: list[AdminTenantRead] = []
+
+
+class AdminRoomCreate(BaseModel):
+    room_no: str = Field(min_length=1, max_length=20)
+    tariff_per_kwh: Decimal = Field(default=Decimal("8.00"), gt=0, max_digits=10, decimal_places=4)
+    opening_balance: Decimal = Field(default=Decimal("250.00"), ge=0, max_digits=12, decimal_places=2)
+    first_tenant_name: str | None = Field(default=None, max_length=100)
+    first_tenant_phone: str | None = Field(default=None, max_length=15)
+    first_tenant_username: str | None = Field(default=None, min_length=3, max_length=60)
+    first_tenant_password: str | None = Field(default=None, min_length=8, max_length=200)
+
+
+class TenantCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    username: str = Field(min_length=3, max_length=60)
+    password: str = Field(min_length=8, max_length=200)
+    phone: str | None = Field(default=None, max_length=15)
+
+
+class ApplianceRead(BaseModel):
+    id: str
+    name: str
+    watts: int
+    category: str
+    hint: str
+
+
+class ActiveApplianceRead(ORMModel):
+    id: int
+    meter_id: int
+    appliance_id: str
+    appliance_name: str
+    watts: int
+    started_at: datetime
+
+
+class ApplianceToggle(BaseModel):
+    enabled: bool
+
+
+class SimulationTickCreate(BaseModel):
+    elapsed_seconds: Decimal = Field(gt=0, le=Decimal("86400"), max_digits=12, decimal_places=3)
+
+
+class SimulationTickRead(BaseModel):
+    meter: MeterRead
+    live_watts: int
+    reading: ReadingRead | None = None
+
+
+class ScenarioBlock(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+    start_min: int = Field(ge=0, lt=1440)
+    end_min: int = Field(gt=0, le=1440)
+    appliance_ids: list[str] = Field(min_length=1, max_length=10)
+
+
+class ScenarioRead(ORMModel):
+    id: int
+    slug: str
+    name: str
+    audience: Literal["ADMIN", "RESIDENT"]
+    description: str
+    blocks: list[ScenarioBlock]
+    is_builtin: bool
+    owner_user_id: int | None
+    created_at: datetime
+
+
+class ScenarioCreate(BaseModel):
+    name: str = Field(min_length=3, max_length=100)
+    audience: Literal["ADMIN", "RESIDENT"]
+    description: str = Field(default="", max_length=500)
+    blocks: list[ScenarioBlock] = Field(min_length=1, max_length=48)
+
+
+class ScenarioApplyCreate(BaseModel):
+    meter_id: int | None = None
+    apply_all: bool = False
+    simulation_date: str | None = None
+
+
+class ScenarioApplyItem(BaseModel):
+    meter_id: int
+    room_id: int
+    units_used: Decimal
+    cost: Decimal
+    reading_count: int
+    partial: bool
+    historical_only: bool
+
+
+class ScenarioApplyRead(BaseModel):
+    scenario_id: int
+    simulation_date: str
+    results: list[ScenarioApplyItem]

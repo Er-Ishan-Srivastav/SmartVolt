@@ -1,5 +1,6 @@
 """Transactional wallet, relay and simulated consumption operations."""
 
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import HTTPException, status
@@ -115,7 +116,15 @@ def set_power_status(db: Session, meter_id: int, power_status: bool) -> Meter:
     return meter
 
 
-def consume_units(db: Session, meter_id: int, requested_units: Decimal) -> ConsumptionLog | None:
+def consume_units(
+    db: Session,
+    meter_id: int,
+    requested_units: Decimal,
+    *,
+    source: str = "MANUAL",
+    note: str | None = None,
+    occurred_at: datetime | None = None,
+) -> ConsumptionLog | None:
     """Debit only affordable kWh and switch the relay off when balance is exhausted.
 
     Returns ``None`` if the meter is off, no units were requested, or no balance remains.
@@ -155,6 +164,9 @@ def consume_units(db: Session, meter_id: int, requested_units: Decimal) -> Consu
         units_used=actual_units,
         cost=actual_cost,
         balance_after=meter.current_balance,
+        source=source,
+        note=note,
+        **({"created_at": occurred_at} if occurred_at is not None else {}),
     )
     db.add(reading)
     db.flush()

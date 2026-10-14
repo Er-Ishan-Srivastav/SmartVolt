@@ -1,28 +1,62 @@
-# API Contract (v0.1)
+# API Contract (v0.2)
 
-Base path: `/api/v1`. Swagger UI is available at `/docs` when the API server is running.
+Base path: `/api/v1`. Swagger UI is available at `/docs`.
 
-| Endpoint | Success | Notes |
-|---|---:|---|
-| `GET /health` | 200 | API process health, not a full DB readiness check |
-| `GET /meters` | 200 | Lists demo meters; requires tenant-scoping before production |
-| `GET /meters/{meter_id}` | 200 | Returns balance, relay state, tariff and room ID |
-| `PATCH /meters/{meter_id}/power` | 200 | Body: `{"power_status": true}`; refuses ON at zero balance (409) |
-| `POST /meters/{meter_id}/recharges` | 201 | Body: `user_id`, positive `amount`, optional `idempotency_key`; verifies same room |
-| `GET /meters/{meter_id}/recharges` | 200 | Optional `status=SUCCESSFUL` or `status=FAILED`; `limit` 1–200 |
-| `POST /meters/{meter_id}/readings` | 201 | Body: `units_used`; simulation/admin write surface, returns 409 when meter is off/empty |
-| `GET /meters/{meter_id}/readings` | 200 | Newest readings first; `limit` 1–500 |
-| `GET /meters/{meter_id}/report?period=7d` | 200 | `period` is `1d`, `7d`, or `30d`; aggregates units/cost and daily buckets (`1d` is the current UTC calendar day; `7d` and `30d` are rolling windows) |
-| `POST /tickets` | 201 | Body: `user_id`, `issue_type`, `description` |
-| `GET /users/{user_id}/tickets` | 200 | Ticket history for a tenant |
+## Existing prototype API (retained for compatibility)
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/health` | API health |
+| `GET` | `/meters` | Demo meter listing |
+| `GET` | `/meters/{meter_id}` | Balance, simulated relay state, tariff and room |
+| `PATCH` | `/meters/{meter_id}/power` | Simulated relay ON/OFF |
+| `POST` | `/meters/{meter_id}/recharges` | Simulated recharge with optional idempotency key |
+| `GET` | `/meters/{meter_id}/recharges` | Recharge history, optional status filter |
+| `POST` | `/meters/{meter_id}/readings` | Legacy manual simulated reading |
+| `GET` | `/meters/{meter_id}/readings` | Recent readings |
+| `GET` | `/meters/{meter_id}/report?period=7d` | `1d`, `7d`, or `30d` aggregate |
+| `POST` | `/tickets` | Legacy ticket creation by user ID |
+| `GET` | `/users/{user_id}/tickets` | Legacy ticket list |
+
+## Authentication
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/auth/login` | Exchange username/password for a bearer token |
+| `GET` | `/auth/me` | Read the authenticated account |
+
+Example login body: `{"username":"admin","password":"Admin123!"}`. Use the returned `access_token` as `Authorization: Bearer <token>`. Tokens expire in eight hours. Change local demo credentials and `AUTH_SECRET` before sharing.
+
+## Admin APIs (ADMIN role required)
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/admin/rooms` | List rooms, meters and resident accounts |
+| `POST` | `/admin/rooms` | Create a room/meter, initial ledger entry, and optionally the first tenant |
+| `POST` | `/admin/rooms/{room_id}/tenants` | Add a resident to an existing room |
+
+## Appliance and scenario simulation
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/simulation/appliances` | Read catalogue of simulated appliances and wattages |
+| `GET` | `/simulation/scenarios?audience=RESIDENT` | List built-in and account-owned templates for that audience |
+| `POST` | `/simulation/scenarios` | Save a custom template; ADMIN audience requires an admin account |
+| `GET` | `/meters/{meter_id}/simulation/appliances` | List active appliances (signed in; residents only for their own room) |
+| `PUT` | `/meters/{meter_id}/simulation/appliances/{appliance_id}` | Enable or disable an appliance (signed in; room access enforced) |
+| `POST` | `/meters/{meter_id}/simulation/tick` | Accumulate elapsed simulated seconds and debit for rounded consumption (signed in; room access enforced) |
+| `POST` | `/simulation/scenarios/{scenario_id}/apply` | Replay a daily template on a meter, or across every meter as admin |
+
+Scenario applications dated today create readings and debit the wallet. A past date creates historical-only readings and does not debit the current balance again. Future dates are rejected. All simulation endpoints are software-only; no physical relay is involved.
 
 ## Error behavior
 
-- `404`: meter/user not found.
-- `403`: user is not assigned to the meter's room for recharge.
-- `409`: attempting to power on an empty meter, duplicate idempotency key with a different request, or recording consumption when meter is off/empty.
-- `422`: request body or query validation failed.
+- `401`: a signed-in account is required or the token is invalid/expired.
+- `403`: wrong role or resident attempting to access another room's meter.
+- `404`: referenced meter, room, appliance or scenario not found.
+- `409`: empty/off meter, duplicate room number or a conflicting recharge idempotency key.
+- `422`: invalid request values, malformed daily schedule or unknown appliance ID.
 
-## Important current limitations
+## Security limitation
 
-No authentication middleware is installed. The `/meters` listing and user-facing APIs are prototype contracts; add identity-aware authorization before deployment. Recharge requests write a **simulated successful** transaction and are not evidence of real payment. Only an external simulator/admin should be able to post readings in a deployed design.
+The legacy prototype API rows above remain available for compatibility and are not all tenant-scoped/authenticated yet. Do not deploy this API publicly until those legacy contracts are secured; see `SECURITY.md`.

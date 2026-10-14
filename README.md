@@ -61,9 +61,15 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. The workspace pages are available at `/overview`, `/usage`, `/transactions`, `/rooms`, `/settings`, and `/support`. The top-bar theme control switches between Night mode and Day mode; the choice is saved in browser local storage. Vite proxies `/api` requests to the FastAPI server at `http://127.0.0.1:8000`. On a fresh seed, the frontend defaults to user ID `2` (Ishan); check the seed output if using an existing database. The backend currently has no authentication.
+Open `http://127.0.0.1:5173`. The workspace pages are available at `/overview`, `/usage`, `/transactions`, `/rooms`, `/simulation`, `/admin`, `/settings`, and `/support`. The top-bar theme control switches between Night mode and Day mode; the choice is saved in browser local storage. Vite proxies `/api` requests to the FastAPI server at `http://127.0.0.1:8000`. After signing in as a resident, the dashboard associates wallet and support operations with that account and selects its assigned meter.
 
 The default `.env.example` uses a local SQLite database to reduce setup friction. For team development, prefer the PostgreSQL setup below so everyone uses the same database engine as CI and deployment.
+
+## Admin, residents and load simulation
+
+The seed creates demo residents `ishan` / `resident123` and `krunal` / `resident123`, plus an admin configured by `ADMIN_USERNAME` / `ADMIN_PASSWORD` (defaults `admin` / `Admin123!`). Keep these demo credentials local-only and configure a strong `AUTH_SECRET`.
+
+The `/admin` page creates rooms, meters, opening wallet balances, and resident accounts. `/simulation` is the Load Lab: toggle an appliance catalogue, run a live simulation clock at different speeds, apply built-in weekday/exam/weekend/heatwave/vacation templates, backfill previous dates, or save a user-specific custom template. Current-day simulation consumes prepaid credit; historical backfills do not debit the current wallet. Residents are limited to their assigned meter and admins can manage all rooms. Appliance and relay behavior is software simulation only. See `docs/API.md`, `docs/DATA_MODEL.md`, and `SECURITY.md`.
 
 ## Run the full stack with Docker Compose
 
@@ -157,7 +163,7 @@ Amounts are represented as decimal strings in JSON where practical to avoid floa
 | Member | Workstream |
 |---|---|
 | Krunal | Project lead/core backend, tariff logic and telemetry generator |
-| Ishan | SQL schema, aggregates and safe balance transactions |
+| Ishan | SQL schema, aggregates, auth/role schema, load persistence and safe balance transactions |
 | Harsh | Dashboard shell, balance card and relay toggle |
 | Harshvardhan | Charts, time filters and CO₂/tree estimates |
 | Hansal | Recharge flow, recharge history and tenant attribution |
@@ -168,8 +174,8 @@ See [`docs/TEAM_WORKFLOW.md`](docs/TEAM_WORKFLOW.md) before parallel work begins
 
 ## Development and security notes
 
-- Authentication is not wired into the initial scaffold. Do not expose this API publicly as-is.
-- The reading-write endpoint is intended for simulation/demo use. Restrict it to an authenticated simulator/admin before deployment.
+- Admin room-management and load-simulation routes enforce signed-in roles and resident room ownership. Several legacy prototype endpoints are still open to preserve the original demo contract; do not expose the API publicly as-is. See `SECURITY.md`.
+- The reading-write endpoint is intended for simulation/demo use and remains a legacy unprotected route. Secure it before deployment.
 - Recharge is a payment **simulation**; no payment provider or actual money movement is configured.
 - Do not commit `.env`, credentials, database dumps, personal data or production tokens.
 - Add authorization checks before allowing a tenant to view or mutate another tenant's records.
@@ -177,7 +183,7 @@ See [`docs/TEAM_WORKFLOW.md`](docs/TEAM_WORKFLOW.md) before parallel work begins
 
 ## GitHub repository setup
 
-The archive contains an initialized local Git repository on `main` with the starter commit. To publish it, create a **blank** GitHub repository (do not pre-add a README or license), then run from this directory:
+For an existing clone, keep its `.git` directory and apply changes in place. If you're starting from a source-only archive, use a fresh clone of the repository first so the existing commit history and remote are preserved. To publish an entirely new project, create a **blank** GitHub repository (do not pre-add a README or license), then run from this directory:
 
 ```bash
 git remote add origin https://github.com/Er-Ishan-Srivastav/SmartVolt.git

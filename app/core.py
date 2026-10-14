@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     simulator_interval_seconds: int = 3600
     simulator_min_kwh: float = 0.05
     simulator_max_kwh: float = 0.50
+    auth_secret: str = "local-development-secret-change-before-deployment"
+    admin_username: str = "admin"
+    admin_password: str = "Admin123!"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
