@@ -1,47 +1,146 @@
-# SmartVolt — Smart Prepaid Energy Meter Simulator
+<!--
+SmartVolt — public project README
+Keep this file focused on product value, reproducible setup, and honest limitations.
+-->
 
-SmartVolt is a full-stack project foundation for simulating prepaid electricity meters in hostels and shared accommodation. It models rooms, tenants, meters, wallet recharges, consumption readings, a ledger, and support tickets without requiring physical IoT hardware.
+<div align="center">
 
-> **Current milestone:** authenticated full-stack prepaid-meter simulation. The React workspace includes Overview, Usage history, Transactions, Room details, Admin Console, Load Lab, Settings, and Help & support; backend-enforced roles and revocable eight-hour sessions; permanent room/tenant/meter/recharge/ticket identifiers; safe room archival; meter-targeted simulated recharges; threaded room-wide/private support tickets; hourly/daily energy analytics; CSV usage exports; printable monthly statements; configurable grid-emissions estimates; and an opt-in autonomous simulation worker. Payment-provider integration, individual roommate consumption allocation, dynamic time-of-use tariffs, and production identity hardening remain follow-on work. Recharge is simulated and does not move real money.
+# ⚡ SmartVolt
 
-## Stack
+### A clearer way to explore prepaid energy, shared meters, and simulated consumption.
 
-- **API:** Python 3.11+, FastAPI, Pydantic
-- **Data:** SQLAlchemy 2.x, Alembic migrations, PostgreSQL (recommended); SQLite for quick local development and tests
-- **Quality:** pytest, HTTPX, Ruff, GitHub Actions
-- **Frontend:** React 18, TypeScript, Vite, Recharts, Lucide
-- **Run options:** local Python/Node or Docker Compose
+**SmartVolt** is a full-stack web application for modelling prepaid electricity meters in hostels and shared accommodation—rooms, tenants, wallets, usage, and support—in one interactive workspace.
 
-## Quick start — Windows PowerShell
+[![API CI](https://github.com/Er-Ishan-Srivastav/SmartVolt/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Er-Ishan-Srivastav/SmartVolt/actions/workflows/ci.yml)
+[![Frontend CI](https://github.com/Er-Ishan-Srivastav/SmartVolt/actions/workflows/frontend.yml/badge.svg?branch=main)](https://github.com/Er-Ishan-Srivastav/SmartVolt/actions/workflows/frontend.yml)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/UI-React%2018-61DAFB?logo=react&logoColor=20232A)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+**[🌐 Open the live demo](https://smartvolt-demo.duckdns.org/overview)** · **[API docs](https://smartvolt-demo.duckdns.org/docs)** · **[Report a bug](https://github.com/Er-Ishan-Srivastav/SmartVolt/issues/new?template=bug_report.md)**
+
+<sub>Simulation and learning project · No physical meter or real payment processing required</sub>
+
+</div>
+
+---
+
+## ✨ What is SmartVolt?
+
+Shared accommodation often means shared electricity usage, a prepaid balance, and questions about who used what and when. SmartVolt provides a sandbox for exploring those workflows without connecting to electrical hardware or moving real money.
+
+The project combines a responsive React workspace with a FastAPI backend, a relational data model, auditable wallet movements, and configurable load simulation. It can run locally for development or as a Docker Compose deployment behind Caddy HTTPS.
+
+## 🚀 Explore the workspace
+
+| Area | What you can do |
+|---|---|
+| **Overview** | Review meter balance, current status, recent activity, and consumption summaries. |
+| **Usage & analytics** | Explore daily and hourly reports, compare energy and cost, and inspect historical readings. |
+| **Transactions** | Review simulated recharges, statuses, and transaction history. |
+| **Rooms & tenants** | Manage room/meter relationships, tenant accounts, room lifecycle, and meter-specific details. |
+| **Admin Console** | Create and manage rooms and tenants, operate across meters, and handle support workflows. |
+| **Load Lab** | Control appliance quantities, schedule daily load templates, run scenarios, and explore estimated energy and cost. |
+| **Help & support** | Create room-wide or private tickets and continue conversations in a threaded timeline. |
+| **Exports** | Download meter-scoped CSV usage and print a monthly statement for review. |
+
+### 🔌 Load Lab: control the load, not just the switch
+
+The simulation lab supports per-appliance quantities so a scenario can represent several devices of the same type.
+
+- **Live Appliance Board:** select 1–100 units per appliance, switch the load on, and update the quantity of a running appliance.
+- **Personal daily templates:** define quantity, start time to the minute, and runtime in 15-minute increments for each appliance row.
+- **Energy and cost preview:** estimate daily kWh and cost using the selected meter's tariff before applying a template.
+- **Midnight-aware schedules:** a schedule that crosses midnight is split across the day boundary.
+- **Legacy template compatibility:** older templates without quantity data default to one unit per listed appliance.
+- **Historical scenarios:** backfill earlier dates without debiting the current wallet; applying a current-day scenario can consume prepaid balance.
+
+For the details and rollout notes, see [Load Lab quantity controls](docs/LOAD_LAB_QUANTITY_CONTROLS.md).
+
+## 🧭 How it fits together
+
+```mermaid
+flowchart TD
+    B[Browser] --> UI[React + TypeScript]
+    UI -->|/api requests| API[FastAPI]
+    API --> DB[(PostgreSQL / SQLite)]
+    API --> MIG[Alembic migrations]
+    API -. optional synthetic loads .-> SIM[Simulation worker]
+    C[Caddy HTTPS reverse proxy] --> UI
+    C --> API
+```
+
+In production, Caddy terminates HTTPS and routes API/documentation traffic to FastAPI and the remaining requests to the static frontend. PostgreSQL and FastAPI ports are not published publicly by the production Compose configuration. The synthetic consumption worker is opt-in because it can create readings and deduct simulated balances.
+
+## 🧰 Technology
+
+| Layer | Technologies |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, Recharts, Lucide |
+| API | Python 3.11+, FastAPI, Pydantic |
+| Persistence | SQLAlchemy 2.x, PostgreSQL 16, SQLite for lightweight local development |
+| Schema management | Alembic migrations |
+| Tests & quality | pytest, HTTPX, Ruff, GitHub Actions |
+| Deployment | Docker Compose, Nginx, Caddy automatic HTTPS |
+
+## ⚡ Run it locally
+
+### Option A — Docker Compose (recommended)
+
+**Requirements:** Docker Desktop (Windows/macOS) or Docker Engine + the Compose plugin (Linux).
+
+From the repository root:
+
+```bash
+docker compose up --build -d
+docker compose exec api python -m app.db.seed
+docker compose ps
+```
+
+Open the app at **http://localhost:5173**. The API health endpoint is **http://localhost:8000/api/v1/health**, and interactive API documentation is **http://localhost:8000/docs**.
+
+Useful commands:
+
+```bash
+# Follow application logs
+docker compose logs -f api frontend
+
+# Stop containers while retaining the database volume
+docker compose down
+
+# Apply migrations after updating the source
+docker compose exec api alembic upgrade head
+```
+
+> **Data warning:** `docker compose down` preserves the named database volume. Do not add `-v` unless you intentionally want to delete the local database data.
+
+The default development Compose credentials and demo seed are for local use only. Do not reuse them on a public server.
+
+### Option B — Python API + Vite frontend
+
+**Requirements:** Python 3.11 or later and Node.js (the frontend lockfile is in `frontend/`).
+
+Create a virtual environment and install the API plus development dependencies.
+
+**Windows PowerShell**
 
 ```powershell
-# 1. Extract the repository archive and enter the project folder.
-cd SmartVolt
-
-# 2. Create and activate a virtual environment.
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-
-# 3. Install the app and developer tools.
 python -m pip install --upgrade pip
 pip install -e ".[dev]"
-
-# 4. Create local configuration and initialize the database.
 Copy-Item .env.example .env
 alembic upgrade head
 python -m app.db.seed
-
-# 5. Start the API.
 uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs` for the interactive Swagger API. The health endpoint is `http://127.0.0.1:8000/api/v1/health`.
-
-### Quick start — macOS/Linux
+**macOS / Linux / Git Bash**
 
 ```bash
-cd SmartVolt
-python3.11 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -e ".[dev]"
@@ -51,170 +150,105 @@ python -m app.db.seed
 uvicorn app.main:app --reload
 ```
 
-## Start the frontend locally
-
-In a **second terminal** (PowerShell or macOS/Linux shell), start the React dashboard:
+In a second terminal:
 
 ```bash
-cd SmartVolt/frontend
+cd frontend
 npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. The workspace pages are available at `/overview`, `/usage`, `/transactions`, `/rooms`, `/simulation`, `/admin`, `/settings`, and `/support`. The top-bar theme control switches between Night mode and Day mode; the choice is saved in browser local storage. Vite proxies `/api` requests to the FastAPI server at `http://127.0.0.1:8000`. After signing in as a resident, the dashboard associates wallet and support operations with that account and selects its assigned meter.
+Open **http://localhost:5173**. Vite forwards `/api` requests to the FastAPI service at `http://127.0.0.1:8000`.
 
-The default `.env.example` uses a local SQLite database to reduce setup friction. For team development, prefer the PostgreSQL setup below so everyone uses the same database engine as CI and deployment.
+The local seed creates demo data for development. Treat all seeded identities and balances as disposable test data; never use local demo passwords or the sample `AUTH_SECRET` in a deployment.
 
-## Admin, residents and load simulation
+## 🐳 Production deployment
 
-The seed creates demo residents `ishan` / `resident123` and `krunal` / `resident123`, plus an admin configured by `ADMIN_USERNAME` / `ADMIN_PASSWORD` (defaults `admin` / `Admin123!`). Keep these demo credentials local-only and configure a strong `AUTH_SECRET`.
+The production path uses `docker-compose.prod.yml`, a static frontend build, FastAPI, PostgreSQL, and Caddy for automatic HTTPS.
 
-The `/admin` page creates rooms, meters, opening wallet balances, and resident accounts. `/simulation` is the Load Lab: toggle an appliance catalogue, run a live simulation clock at different speeds, apply built-in weekday/exam/weekend/heatwave/vacation templates, backfill previous dates, or save a user-specific custom template. Current-day simulation consumes prepaid credit; historical backfills do not debit the current wallet. Residents are limited to their assigned meter and admins can manage all rooms. Appliance and relay behavior is software simulation only. See `docs/API.md`, `docs/DATA_MODEL.md`, and `SECURITY.md`.
+1. Copy `.env.production.example` to `.env.production`.
+2. Set `SMARTVOLT_DOMAIN` to a real DNS hostname pointing to the server.
+3. Generate unique values for `POSTGRES_PASSWORD` and `AUTH_SECRET`; choose a strong, unique `ADMIN_PASSWORD`.
+4. Validate and start the stack:
 
-## Run the full stack with Docker Compose
+   ```bash
+   docker compose --env-file .env.production -f docker-compose.prod.yml config --quiet
+   docker compose --env-file .env.production -f docker-compose.prod.yml up --build -d
+   ```
 
-Install Docker Desktop, then from the repository root run:
+5. Bootstrap the first administrator on a new production database:
 
-```bash
-docker compose up --build -d
-docker compose exec api python -m app.db.seed
-```
+   ```bash
+   docker compose --env-file .env.production -f docker-compose.prod.yml exec api python -m app.db.bootstrap_admin
+   ```
 
-Open the dashboard at `http://127.0.0.1:5173`, the API docs at `http://127.0.0.1:8000/docs`, and PostgreSQL at `localhost:5432`. Compose starts PostgreSQL, runs migrations before starting the API, and serves the Vite dashboard with `/api` proxied to the API service. To view logs, use `docker compose logs -f api frontend`. Stop the stack with `docker compose down`; add `-v` only when you intentionally want to delete the persisted database volume.
+6. Verify service health and Caddy certificate issuance before sharing the URL.
 
-The Compose database credentials are **development-only**. Do not reuse them for a deployed environment.
+Read the full [Docker + HTTPS deployment guide](docs/DOCKER_DEPLOYMENT.md) and [security notes](SECURITY.md) first. **Never commit `.env.production`, private keys, database dumps, or real resident data.** Keep inbound access to SSH restricted to your IP; do not expose PostgreSQL (5432) or FastAPI (8000) directly to the internet.
 
-## Hourly analysis, environmental estimate and billing exports
+## 📊 Analytics and billing semantics
 
-The Usage page supports a 24-bucket hourly report for a selected Asia/Kolkata calendar day, plus daily summaries and 7-/30-day rolling views. Hourly reporting does not misattribute older block-based scenario records to the hour at which the block happened to be saved; such records are included in day totals and labeled as unallocated/coarse history. New scenario applications preserve hour-by-hour energy across hour boundaries.
+- Hourly reports use **Asia/Kolkata** day boundaries and 24 hourly buckets.
+- Historical block-based readings that cannot be attributed reliably to an hour are labelled as coarse/unallocated instead of being assigned a misleading timestamp.
+- CSV exports are meter-scoped and use inclusive IST date ranges (up to 366 days).
+- Monthly statements are printable summaries, not tax invoices or proof of real utility-payment processing.
+- Environmental values are estimates. The default grid factor is configurable with `GRID_CO2_FACTOR_KG_PER_KWH`; the tree-year equivalent is an educational assumption configured by `TREE_CO2_ABSORPTION_KG_PER_YEAR`. Review the source and current factor before using estimates in formal reporting.
 
-The environmental panel estimates grid-related CO₂ as `recorded kWh × configured grid factor`. The current default is `0.675 kg CO₂/kWh`, associated with CEA CDM CO₂ Baseline Database Version 22.0; review the current official source before using this in a formal report: https://cea.nic.in/cdm-co2-baseline-database/?lang=en. The displayed “tree-year equivalent” uses an educational assumption of `22 kg CO₂ per tree-year`, not an ecological claim that actual trees were saved. Both factors are configurable in `.env` through `GRID_CO2_FACTOR_KG_PER_KWH` and `TREE_CO2_ABSORPTION_KG_PER_YEAR`.
+## 🧪 Tests and checks
 
-The Usage page also provides a meter-scoped CSV usage export with date boundaries in Indian Standard Time and a printable monthly billing summary/receipt. Exports include meter/room metadata, recorded units and cost, and the environmental-estimate source. Historical statements report the meter's current tariff as informational only; do not interpret it as a stored historic tariff schedule.
-
-## Autonomous telemetry worker
-
-The API does not launch the synthetic consumption worker automatically. For local testing, enable `SIMULATOR_ENABLED=true` in `.env`, then run `python -m app.simulator` in a third terminal. It creates synthetic consumption at the configured interval and may debit active meter balances, so leave it disabled unless synthetic wallet deductions are intended. For Docker production, the worker is an opt-in Compose profile:
-
-```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml --profile simulator up -d simulator
-```
-
-Do not enable it for real resident balances unless the simulation nature and deduction rules are understood. The worker emits structured operational messages and supports graceful shutdown.
-
-## Useful commands
+From the repository root:
 
 ```bash
-# Run tests
-pytest
-
-# Lint
-ruff check .
-
-# Apply database migrations after pulling changes
-alembic upgrade head
-
-# Create a new migration after changing SQLAlchemy models
-alembic revision --autogenerate -m "describe schema change"
-
-# Run the separate worker only after setting SIMULATOR_ENABLED=true in .env
-python -m app.simulator
+python -m pip install -e ".[dev]"
+python -m pytest -q
+python -m ruff check .
+cd frontend
+npm ci
+npm run build
 ```
 
-## API starter surface
+CI runs the backend test and lint workflow; the frontend has its own GitHub Actions workflow. Review the Actions tab for the latest results rather than relying on a static status claim.
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/api/v1/health` | Health check |
-| GET | `/api/v1/meters` | List demo meters |
-| GET | `/api/v1/meters/{meter_id}` | Meter state and current balance |
-| PATCH | `/api/v1/meters/{meter_id}/power` | Simulated relay on/off |
-| POST | `/api/v1/meters/{meter_id}/recharges` | Simulated wallet recharge |
-| GET | `/api/v1/meters/{meter_id}/recharges` | Recharge history; optional `status` filter |
-| POST | `/api/v1/meters/{meter_id}/readings` | Record simulated consumption (development/admin surface) |
-| GET | `/api/v1/meters/{meter_id}/readings` | Reading history |
-| GET | `/api/v1/meters/{meter_id}/report?period=7d` | Usage, cost, daily aggregation and environmental estimate (`1d`, `7d`, `30d`); `granularity=hourly&date=YYYY-MM-DD` returns 24 IST buckets |
-| GET | `/api/v1/meters/{meter_id}/usage-export?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` | Meter-authorized CSV usage export for up to 366 inclusive IST calendar days |
-| GET | `/api/v1/meters/{meter_id}/billing-statement?month=YYYY-MM` | Meter-authorized monthly summary for printing/saving as PDF |
-| POST | `/api/v1/tickets` | Raise a room-wide (default) or private support ticket |
-| GET | `/api/v1/users/{user_id}/tickets` | List own tickets and authorized room-wide tickets |
-| GET | `/api/v1/tickets/{ticket_id}` | Get an authorized ticket conversation |
-| POST | `/api/v1/tickets/{ticket_id}/messages` | Reply to an open ticket |
-| GET | `/api/v1/admin/tickets` | Administrator ticket queue and filters |
-| PATCH | `/api/v1/admin/tickets/{ticket_id}` | Change status or priority |
+## 🗂️ Project map
 
-Example request bodies:
-
-```json
-// POST /api/v1/meters/1/recharges
-{
-  "user_id": 1,
-  "amount": "200.00",
-  "idempotency_key": "optional-client-generated-unique-key"
-}
+```text
+SmartVolt/
+├── app/                     # FastAPI routes, models, schemas and services
+├── alembic/                 # Versioned database migrations
+├── frontend/                # React + TypeScript + Vite application
+├── tests/                   # API and bootstrap tests
+├── docs/                    # API, data model, deployment and Load Lab docs
+├── docker-compose.yml        # Local development stack
+├── docker-compose.prod.yml  # Production stack with Caddy HTTPS
+├── Caddyfile                # HTTPS routing and security headers
+├── Dockerfile.prod          # Production API image
+└── pyproject.toml            # Python dependencies and test/lint settings
 ```
 
-```json
-// PATCH /api/v1/meters/1/power
-{ "power_status": false }
-```
+## 🛡️ Scope and limitations
 
-```json
-// POST /api/v1/meters/1/readings
-{ "units_used": "0.250" }
-```
+SmartVolt is a **simulation and learning project**, not a certified electricity meter or financial service.
 
-Amounts are represented as decimal strings in JSON where practical to avoid floating-point money rounding.
+- It does not control physical electrical relays or read real IoT hardware.
+- Recharges are simulated; no payment provider or real money movement is configured.
+- Shared-meter consumption is not a measurement of each roommate's individual usage.
+- Synthetic telemetry can debit simulated wallets. Keep the worker disabled unless you deliberately want that behavior.
+- Before allowing untrusted public users, perform a security review, test authorization and PostgreSQL concurrency, add abuse protection/rate limiting, and establish verified off-instance backups and monitoring.
 
-## Seeded demo data
+See [SECURITY.md](SECURITY.md), [the API reference](docs/API.md), [the data model](docs/DATA_MODEL.md), and the [roadmap](docs/ROADMAP.md).
 
-`python -m app.db.seed` creates a demo room, users (Krunal and Ishan), a meter and an initial balance only when the demo room does not already exist. The seed operation is idempotent. IDs are database-generated; inspect the response or database rather than assuming IDs in a shared environment.
+## 🤝 Contributing
 
-## Data model
+Bug reports and focused improvements are welcome. Please:
 
-- `rooms`: room number and creation timestamp
-- `users`: tenant name/phone and primary room
-- `meters`: room-linked meter, balance, relay state, tariff
-- `consumption_logs`: measured/simulated kWh, cost, balance after debit, timestamp and source/note
-- `recharges`: user-attributed simulated recharge and status
-- `wallet_ledger`: append-only credit/debit entries and balance snapshots
-- `tickets`: tenant support issues
+1. Open an issue describing the behavior or proposed change.
+2. Keep schema changes in Alembic migrations.
+3. Add or update tests for backend behavior.
+4. Run the backend checks and frontend production build.
+5. Open a pull request with a concise description and verification notes.
 
-`wallet_ledger` records balance changes separately from current meter state so changes can be reconciled. Recharge/consumption services use a row lock on PostgreSQL and commit the meter update, transaction record and ledger entry in one database transaction. SQLite is suitable for local learning and unit tests but does not provide the same row-lock semantics as PostgreSQL.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [team workflow](docs/TEAM_WORKFLOW.md).
 
-## Team workstreams (from the supplied project specification)
+## 📄 License
 
-| Member | Workstream |
-|---|---|
-| Krunal | Project lead/core backend, tariff logic and telemetry generator |
-| Ishan | SQL schema, aggregates, auth/role schema, load persistence and safe balance transactions |
-| Harsh | Dashboard shell, balance card and relay toggle |
-| Harshvardhan | Charts, time filters and CO₂/tree estimates |
-| Hansal | Recharge flow, recharge history and tenant attribution |
-| Komal | Usage history, room detail and billing exports |
-| Khushi | Authentication, profile/settings, tickets and QA |
-
-See [`docs/TEAM_WORKFLOW.md`](docs/TEAM_WORKFLOW.md) before parallel work begins.
-
-## Development and security notes
-
-- Protected meter, wallet, reading, report, simulator, account, and support routes validate the current session and enforce room/account scope, while admin operations require the ADMIN role. This is still a student simulation and not a production security certification: apply rate limiting, review all authorization paths, configure high-entropy deployment secrets, secure backups, and conduct PostgreSQL concurrency and browser end-to-end tests before public access. See `SECURITY.md`.
-- Recharge is a payment **simulation**; no payment provider or actual money movement is configured.
-- Do not commit `.env`, credentials, database dumps, personal data or production tokens.
-- Add authorization checks before allowing a tenant to view or mutate another tenant's records.
-- Keep schema changes in Alembic migrations; do not rely on `create_all()` in deployed environments.
-
-## GitHub repository setup
-
-For an existing clone, keep its `.git` directory and apply changes in place. If you're starting from a source-only archive, use a fresh clone of the repository first so the existing commit history and remote are preserved. To publish an entirely new project, create a **blank** GitHub repository (do not pre-add a README or license), then run from this directory:
-
-```bash
-git remote add origin https://github.com/Er-Ishan-Srivastav/SmartVolt.git
-git push -u origin main
-```
-
-If you chose another GitHub repository name or owner, replace the URL accordingly. Invite the remaining six teammates as collaborators, create issues from `docs/ROADMAP.md`, and use pull requests for all team changes. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/TEAM_WORKFLOW.md`](docs/TEAM_WORKFLOW.md).
-
-## Project specification
-
-The scope and seven-person workstream mapping are based on the provided *Smart Energy Meter Web Application Specification*. The starter deliberately makes a few implementation choices explicit: FastAPI + PostgreSQL as the shared team baseline, SQLite as a zero-setup local option, and an append-only ledger to audit wallet movements.
+Released under the [MIT License](LICENSE).
