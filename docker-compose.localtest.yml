@@ -1,0 +1,6 @@
+services:
+  frontend:
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./frontend/nginx.localtest.conf:/etc/nginx/conf.d/default.conf:ro

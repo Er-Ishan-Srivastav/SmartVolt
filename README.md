@@ -2,7 +2,7 @@
 
 SmartVolt is a full-stack project foundation for simulating prepaid electricity meters in hostels and shared accommodation. It models rooms, tenants, meters, wallet recharges, consumption readings, a ledger, and support tickets without requiring physical IoT hardware.
 
-> **Current milestone:** polished full-stack prototype. The React workspace has independent Overview, Usage history, Transactions, Room details, Settings, and Help & support pages; persistent day/night themes; responsive navigation; animated page transitions; usage/cost analytics; searchable transactions with CSV export; room relay controls; and support tickets connected to the API. Authentication/authorization, payment-provider integration, and production deployment hardening remain follow-on work. The recharge API simulates a payment and must not be treated as a real payment system.
+> **Current milestone:** authenticated full-stack prepaid-meter simulation. The React workspace includes Overview, Usage history, Transactions, Room details, Admin Console, Load Lab, Settings, and Help & support; backend-enforced roles and revocable eight-hour sessions; permanent room/tenant/meter/recharge/ticket identifiers; safe room archival; meter-targeted simulated recharges; threaded room-wide/private support tickets; hourly/daily energy analytics; CSV usage exports; printable monthly statements; configurable grid-emissions estimates; and an opt-in autonomous simulation worker. Payment-provider integration, individual roommate consumption allocation, dynamic time-of-use tariffs, and production identity hardening remain follow-on work. Recharge is simulated and does not move real money.
 
 ## Stack
 
@@ -57,7 +57,7 @@ In a **second terminal** (PowerShell or macOS/Linux shell), start the React dash
 
 ```bash
 cd SmartVolt/frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -84,6 +84,24 @@ Open the dashboard at `http://127.0.0.1:5173`, the API docs at `http://127.0.0.1
 
 The Compose database credentials are **development-only**. Do not reuse them for a deployed environment.
 
+## Hourly analysis, environmental estimate and billing exports
+
+The Usage page supports a 24-bucket hourly report for a selected Asia/Kolkata calendar day, plus daily summaries and 7-/30-day rolling views. Hourly reporting does not misattribute older block-based scenario records to the hour at which the block happened to be saved; such records are included in day totals and labeled as unallocated/coarse history. New scenario applications preserve hour-by-hour energy across hour boundaries.
+
+The environmental panel estimates grid-related CO₂ as `recorded kWh × configured grid factor`. The current default is `0.675 kg CO₂/kWh`, associated with CEA CDM CO₂ Baseline Database Version 22.0; review the current official source before using this in a formal report: https://cea.nic.in/cdm-co2-baseline-database/?lang=en. The displayed “tree-year equivalent” uses an educational assumption of `22 kg CO₂ per tree-year`, not an ecological claim that actual trees were saved. Both factors are configurable in `.env` through `GRID_CO2_FACTOR_KG_PER_KWH` and `TREE_CO2_ABSORPTION_KG_PER_YEAR`.
+
+The Usage page also provides a meter-scoped CSV usage export with date boundaries in Indian Standard Time and a printable monthly billing summary/receipt. Exports include meter/room metadata, recorded units and cost, and the environmental-estimate source. Historical statements report the meter's current tariff as informational only; do not interpret it as a stored historic tariff schedule.
+
+## Autonomous telemetry worker
+
+The API does not launch the synthetic consumption worker automatically. For local testing, enable `SIMULATOR_ENABLED=true` in `.env`, then run `python -m app.simulator` in a third terminal. It creates synthetic consumption at the configured interval and may debit active meter balances, so leave it disabled unless synthetic wallet deductions are intended. For Docker production, the worker is an opt-in Compose profile:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml --profile simulator up -d simulator
+```
+
+Do not enable it for real resident balances unless the simulation nature and deduction rules are understood. The worker emits structured operational messages and supports graceful shutdown.
+
 ## Useful commands
 
 ```bash
@@ -99,7 +117,7 @@ alembic upgrade head
 # Create a new migration after changing SQLAlchemy models
 alembic revision --autogenerate -m "describe schema change"
 
-# Run the separate simulated-consumption worker (defaults to one tick per hour)
+# Run the separate worker only after setting SIMULATOR_ENABLED=true in .env
 python -m app.simulator
 ```
 
@@ -115,9 +133,15 @@ python -m app.simulator
 | GET | `/api/v1/meters/{meter_id}/recharges` | Recharge history; optional `status` filter |
 | POST | `/api/v1/meters/{meter_id}/readings` | Record simulated consumption (development/admin surface) |
 | GET | `/api/v1/meters/{meter_id}/readings` | Reading history |
-| GET | `/api/v1/meters/{meter_id}/report?period=7d` | Usage, cost, and daily aggregates (`1d` = current UTC day; `7d`/`30d` = rolling windows) |
-| POST | `/api/v1/tickets` | Raise a support ticket |
-| GET | `/api/v1/users/{user_id}/tickets` | List a tenant's tickets |
+| GET | `/api/v1/meters/{meter_id}/report?period=7d` | Usage, cost, daily aggregation and environmental estimate (`1d`, `7d`, `30d`); `granularity=hourly&date=YYYY-MM-DD` returns 24 IST buckets |
+| GET | `/api/v1/meters/{meter_id}/usage-export?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` | Meter-authorized CSV usage export for up to 366 inclusive IST calendar days |
+| GET | `/api/v1/meters/{meter_id}/billing-statement?month=YYYY-MM` | Meter-authorized monthly summary for printing/saving as PDF |
+| POST | `/api/v1/tickets` | Raise a room-wide (default) or private support ticket |
+| GET | `/api/v1/users/{user_id}/tickets` | List own tickets and authorized room-wide tickets |
+| GET | `/api/v1/tickets/{ticket_id}` | Get an authorized ticket conversation |
+| POST | `/api/v1/tickets/{ticket_id}/messages` | Reply to an open ticket |
+| GET | `/api/v1/admin/tickets` | Administrator ticket queue and filters |
+| PATCH | `/api/v1/admin/tickets/{ticket_id}` | Change status or priority |
 
 Example request bodies:
 
@@ -151,7 +175,7 @@ Amounts are represented as decimal strings in JSON where practical to avoid floa
 - `rooms`: room number and creation timestamp
 - `users`: tenant name/phone and primary room
 - `meters`: room-linked meter, balance, relay state, tariff
-- `consumption_logs`: measured/simulated kWh, cost, balance after debit, timestamp
+- `consumption_logs`: measured/simulated kWh, cost, balance after debit, timestamp and source/note
 - `recharges`: user-attributed simulated recharge and status
 - `wallet_ledger`: append-only credit/debit entries and balance snapshots
 - `tickets`: tenant support issues
@@ -174,8 +198,7 @@ See [`docs/TEAM_WORKFLOW.md`](docs/TEAM_WORKFLOW.md) before parallel work begins
 
 ## Development and security notes
 
-- Admin room-management and load-simulation routes enforce signed-in roles and resident room ownership. Several legacy prototype endpoints are still open to preserve the original demo contract; do not expose the API publicly as-is. See `SECURITY.md`.
-- The reading-write endpoint is intended for simulation/demo use and remains a legacy unprotected route. Secure it before deployment.
+- Protected meter, wallet, reading, report, simulator, account, and support routes validate the current session and enforce room/account scope, while admin operations require the ADMIN role. This is still a student simulation and not a production security certification: apply rate limiting, review all authorization paths, configure high-entropy deployment secrets, secure backups, and conduct PostgreSQL concurrency and browser end-to-end tests before public access. See `SECURITY.md`.
 - Recharge is a payment **simulation**; no payment provider or actual money movement is configured.
 - Do not commit `.env`, credentials, database dumps, personal data or production tokens.
 - Add authorization checks before allowing a tenant to view or mutate another tenant's records.

@@ -32,3 +32,6 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# The root directory has no package.json; npm is managed in frontend/
+/package-lock.json

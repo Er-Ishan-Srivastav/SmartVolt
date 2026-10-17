@@ -1,3 +1,18 @@
+# Build/dependency artifacts
 node_modules
 dist
+.vite
+*.tsbuildinfo
+*.log
+
+# Never send real environment-specific values to the frontend build context
+.env
+.env.*
+!.env.example
+
+# Repository/editor artifacts
 .git
+.vscode
+.idea
+.DS_Store
+Thumbs.db

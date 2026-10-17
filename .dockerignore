@@ -1,10 +1,35 @@
+# Git and local environments
 .git
 .venv
+venv
 __pycache__
 .pytest_cache
 .ruff_cache
+.mypy_cache
+.tox
+.nox
+*.egg-info
+
+# Environment and local state; keep only sample templates in the repo, never in build context
 .env
 .env.*
 *.db
 *.sqlite
 *.sqlite3
+
+# Frontend dependencies/build output and generated caches
+node_modules
+**/node_modules
+dist
+**/dist
+build
+**/*.tsbuildinfo
+.coverage
+htmlcov
+*.log
+
+# OS/editor files
+.vscode
+.idea
+.DS_Store
+Thumbs.db

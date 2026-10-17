@@ -1,6 +1,6 @@
 """Pydantic request/response models."""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -19,11 +19,15 @@ class HealthRead(BaseModel):
 
 class RoomRead(ORMModel):
     id: int
+    room_code: str
     room_no: str
+    is_active: bool
 
 
 class MeterRead(ORMModel):
     id: int
+    meter_code: str
+    is_active: bool
     room_id: int
     current_balance: Decimal
     power_status: bool
@@ -36,15 +40,64 @@ class PowerToggle(BaseModel):
 
 
 class RechargeCreate(BaseModel):
-    user_id: int
+    # Legacy meter endpoint: residents may only name themselves; admins should use
+    # the target-aware /admin/recharges endpoint instead.
+    user_id: int | None = None
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     idempotency_key: str | None = Field(default=None, max_length=100)
 
 
 class RechargeRead(ORMModel):
     id: int
+    recharge_code: str
     meter_id: int
-    user_id: int
+    user_id: int | None = None
+    actor_user_id: int | None = None
+    amount: Decimal
+    status: str
+    idempotency_key: str | None
+    created_at: datetime
+
+
+class RechargeTargetTenant(BaseModel):
+    id: int
+    tenant_code: str
+    name: str
+    username: str | None = None
+
+
+class AdminRechargeTargetRead(BaseModel):
+    meter_id: int
+    meter_code: str
+    room_id: int
+    room_code: str
+    room_no: str
+    current_balance: Decimal
+    tariff_per_kwh: Decimal
+    tenants: list[RechargeTargetTenant] = Field(default_factory=list)
+
+
+class AdminRechargeCreate(BaseModel):
+    target_type: Literal["meter_id", "meter_code", "room_id", "room_code", "room_no", "tenant_id", "tenant_code", "username"]
+    target_value: str = Field(min_length=1, max_length=100)
+    tenant_context_id: int | None = Field(default=None, ge=1)
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    idempotency_key: str | None = Field(default=None, max_length=100)
+
+
+class AdminRechargeRead(BaseModel):
+    id: int
+    recharge_code: str
+    meter_id: int
+    meter_code: str
+    room_id: int
+    room_code: str
+    room_no: str
+    user_id: int | None = None
+    tenant_code: str | None = None
+    tenant_name: str | None = None
+    actor_user_id: int | None = None
+    actor_name: str | None = None
     amount: Decimal
     status: str
     idempotency_key: str | None
@@ -72,6 +125,14 @@ class DailyUsage(BaseModel):
     cost: Decimal
 
 
+class HourlyUsage(BaseModel):
+    hour: int = Field(ge=0, le=23)
+    label: str
+    units_used: Decimal
+    cost: Decimal
+    reading_count: int
+
+
 class UsageReport(BaseModel):
     meter_id: int
     period: Literal["1d", "7d", "30d"]
@@ -79,21 +140,106 @@ class UsageReport(BaseModel):
     total_cost: Decimal
     reading_count: int
     daily: list[DailyUsage]
+    granularity: Literal["daily", "hourly"] = "daily"
+    timezone: str = "Asia/Kolkata"
+    selected_date: date | None = None
+    hourly: list[HourlyUsage] = Field(default_factory=list)
+    # Older scenario simulations stored the full block total at its start time.
+    # Those legacy totals remain in the day's totals but are not falsely assigned
+    # to one hour; they are surfaced separately for data honesty.
+    unallocated_units: Decimal = Decimal("0.0000")
+    unallocated_cost: Decimal = Decimal("0.00")
+    unallocated_reading_count: int = 0
+    hourly_data_quality: Literal["RESOLVED", "COARSE_LEGACY", "MIXED", "NO_DATA"] = "NO_DATA"
+    estimated_co2_kg: Decimal = Decimal("0.000")
+    co2_factor_kg_per_kwh: Decimal = Decimal("0.675")
+    co2_factor_source: str = ""
+    co2_factor_source_url: str = "https://cea.nic.in/cdm-co2-baseline-database/?lang=en"
+    tree_years_equivalent: Decimal = Decimal("0.0000")
+    tree_absorption_kg_per_year: Decimal = Decimal("22.0")
+    environmental_estimate_note: str = (
+        "Estimated grid emissions only. Tree-year equivalent is illustrative and does not represent verified trees saved."
+    )
+
+
+class BillingStatementRead(BaseModel):
+    meter_id: int
+    meter_code: str
+    room_code: str
+    room_no: str
+    month: str
+    period_start: date
+    period_end: date
+    timezone: str = "Asia/Kolkata"
+    current_tariff_per_kwh: Decimal
+    total_units: Decimal
+    total_energy_cost: Decimal
+    total_recharge_amount: Decimal
+    reading_count: int
+    recharge_count: int
+    opening_balance: Decimal | None = None
+    closing_balance: Decimal | None = None
+    estimated_co2_kg: Decimal
+    co2_factor_kg_per_kwh: Decimal
+    co2_factor_source: str
+    co2_factor_source_url: str
+    statement_note: str = (
+        "Consumption cost uses recorded reading costs. The displayed tariff is the meter's current tariff, "
+        "not a reconstructed historic tariff schedule."
+    )
 
 
 class TicketCreate(BaseModel):
-    user_id: int
+    # User identity is derived from the session. Optional field is retained for
+    # backwards compatibility, but a mismatch is rejected by the API.
+    user_id: int | None = Field(default=None, ge=1)
     issue_type: str = Field(min_length=2, max_length=50)
     description: str = Field(min_length=5, max_length=5000)
+    visibility: Literal["ROOM", "PRIVATE"] = "ROOM"
+
+
+class TicketMessageCreate(BaseModel):
+    message: str = Field(min_length=1, max_length=5000)
+
+
+class TicketMessageRead(ORMModel):
+    id: int
+    ticket_id: int
+    author_user_id: int | None = None
+    author_name: str
+    author_role: Literal["ADMIN", "RESIDENT"]
+    message: str
+    created_at: datetime
+
+
+class TicketStatusUpdate(BaseModel):
+    status: Literal["OPEN", "IN_PROGRESS", "AWAITING_RESIDENT", "RESOLVED", "CLOSED"] | None = None
+    priority: Literal["LOW", "NORMAL", "HIGH", "URGENT"] | None = None
 
 
 class TicketRead(ORMModel):
     id: int
+    ticket_code: str
     user_id: int
+    room_id: int | None = None
+    room_code_snapshot: str | None = None
+    room_no_snapshot: str | None = None
+    visibility: Literal["ROOM", "PRIVATE"]
     issue_type: str
     description: str
-    status: str
+    status: Literal["OPEN", "IN_PROGRESS", "AWAITING_RESIDENT", "RESOLVED", "CLOSED"]
+    priority: str
     created_at: datetime
+    updated_at: datetime
+    requester_name: str | None = None
+    requester_username: str | None = None
+    messages: list[TicketMessageRead] = Field(default_factory=list)
+
+
+class AdminTicketRead(TicketRead):
+    requester_name: str
+    requester_username: str | None = None
+    room_no: str | None = None
 
 
 class LoginCreate(BaseModel):
@@ -107,6 +253,18 @@ class AuthAccountRead(BaseModel):
     username: str
     role: Literal["ADMIN", "RESIDENT"]
     room_id: int | None = None
+    tenant_code: str | None = None
+    phone: str | None = None
+
+
+class ProfileUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    phone: str | None = Field(default=None, max_length=15)
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
 
 
 class LoginRead(BaseModel):
@@ -118,6 +276,8 @@ class LoginRead(BaseModel):
 
 class AdminTenantRead(ORMModel):
     id: int
+    tenant_code: str | None = None
+    is_active: bool = True
     name: str
     username: str | None
     phone: str | None
@@ -127,6 +287,8 @@ class AdminTenantRead(ORMModel):
 
 class AdminRoomRead(ORMModel):
     id: int
+    room_code: str
+    is_active: bool
     room_no: str
     created_at: datetime
     meter: MeterRead | None = None
@@ -176,11 +338,13 @@ class ActiveApplianceRead(ORMModel):
     appliance_id: str
     appliance_name: str
     watts: int
+    quantity: int = Field(ge=1, le=100)
     started_at: datetime
 
 
 class ApplianceToggle(BaseModel):
     enabled: bool
+    quantity: int = Field(default=1, ge=1, le=100)
 
 
 class SimulationTickCreate(BaseModel):
@@ -198,6 +362,9 @@ class ScenarioBlock(BaseModel):
     start_min: int = Field(ge=0, lt=1440)
     end_min: int = Field(gt=0, le=1440)
     appliance_ids: list[str] = Field(min_length=1, max_length=10)
+    # Missing quantity entries are interpreted as one unit for backwards
+    # compatibility with scenarios stored before quantity controls existed.
+    appliance_quantities: dict[str, int] = Field(default_factory=dict)
 
 
 class ScenarioRead(ORMModel):

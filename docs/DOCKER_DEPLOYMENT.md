@@ -10,7 +10,7 @@ SmartVolt now has two Docker paths:
 - A server with Docker Engine and the Docker Compose plugin.
 - A domain you control, with its DNS `A` record pointing to the server. If the domain has an `AAAA` record, that IPv6 address must also point to this server.
 - Inbound TCP ports 80 and 443 open in the host firewall and cloud firewall. UDP 443 is optional but enables HTTP/3.
-- The current application is still a student simulation. `SECURITY.md` lists legacy endpoints that are not fully authorized; HTTPS encrypts traffic but does not fix those application-level authorization gaps. Do not treat this compose file alone as making the app safe for untrusted public users.
+- SmartVolt remains a student simulation, not a certified utility/payment platform. Before allowing untrusted public users, review `SECURITY.md`, enable abuse protection/rate limiting, test authorization and PostgreSQL concurrency, and configure backups/monitoring. HTTPS encrypts traffic but is not a substitute for application-level security.
 
 ## Configure secrets
 
@@ -39,7 +39,27 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs -f cad
 
 When DNS points to the server and ports 80/443 are reachable, Caddy obtains and renews the certificate automatically. Open `https://YOUR_DOMAIN`; API docs are at `https://YOUR_DOMAIN/docs`.
 
-The production Compose file runs Alembic migrations when the API container starts. The database and Caddy certificate state are stored in named Docker volumes. Stop the deployment with:
+The production Compose file runs Alembic migrations when the API container starts. The database and Caddy certificate state are stored in named Docker volumes.
+
+### Bootstrap the initial administrator safely
+
+On a new production database, create the first admin without running the development demo seed (which creates residents with a shared demo password):
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml exec api python -m app.db.bootstrap_admin
+```
+
+The command creates the configured administrator only if the username is unused; it does not reset an existing account password and does not create demo residents. In `ENVIRONMENT=production`, it refuses to run with the demo password or a short/default application secret. Keep `.env.production` private. Create resident accounts later through the Admin Console.
+
+### Optional synthetic telemetry
+
+The synthetic-consumption worker is deliberately excluded from the default production startup. It can deduct balances, so enable it only when that behavior is intended:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml --profile simulator up -d simulator
+```
+
+Leave the simulator disabled for a static demonstration, or use a clearly labeled test environment with test balances. The CO₂ factor and illustrative tree-year conversion are configurable via `GRID_CO2_FACTOR_KG_PER_KWH` and `TREE_CO2_ABSORPTION_KG_PER_YEAR`. Stop the deployment with:
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml down

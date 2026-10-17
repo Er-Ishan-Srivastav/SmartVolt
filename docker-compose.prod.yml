@@ -28,7 +28,9 @@ services:
       ENVIRONMENT: production
       LOG_LEVEL: INFO
       DEFAULT_TARIFF_PER_KWH: "8.00"
-      SIMULATOR_INTERVAL_SECONDS: "3600"
+      GRID_CO2_FACTOR_KG_PER_KWH: "${GRID_CO2_FACTOR_KG_PER_KWH:-0.675}"
+      TREE_CO2_ABSORPTION_KG_PER_YEAR: "${TREE_CO2_ABSORPTION_KG_PER_YEAR:-22.0}"
+      SIMULATOR_INTERVAL_SECONDS: "${SIMULATOR_INTERVAL_SECONDS:-3600}"
       AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env.production}
       ADMIN_USERNAME: ${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env.production}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env.production}
@@ -57,6 +59,27 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  # Optional autonomous synthetic consumption worker. It is opt-in so a deployment
+  # cannot start wallet deductions accidentally; enable with --profile simulator.
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    command: ["python", "-m", "app.simulator"]
+    profiles: ["simulator"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-smartvolt}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@db:5432/smartvolt
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      SIMULATOR_ENABLED: "true"
+      SIMULATOR_INTERVAL_SECONDS: "${SIMULATOR_INTERVAL_SECONDS:-3600}"
+      SIMULATOR_MIN_KWH: "${SIMULATOR_MIN_KWH:-0.05}"
+      SIMULATOR_MAX_KWH: "${SIMULATOR_MAX_KWH:-0.50}"
+    depends_on:
+      api:
+        condition: service_healthy
 
   caddy:
     image: caddy:2-alpine

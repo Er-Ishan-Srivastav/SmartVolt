@@ -31,42 +31,77 @@ def _locked_meter(db: Session, meter_id: int) -> Meter:
 
 
 def recharge_meter(
-    db: Session, meter_id: int, user_id: int, amount: Decimal, idempotency_key: str | None = None
+    db: Session,
+    meter_id: int,
+    user_id: int | None,
+    amount: Decimal,
+    idempotency_key: str | None = None,
+    *,
+    actor_user_id: int | None = None,
+    allow_empty_target: bool = False,
 ) -> Recharge:
-    """Credit a meter and append recharge + ledger records atomically."""
+    """Credit one active meter and append recharge + ledger records atomically.
+
+    ``user_id`` is optional tenant context; ``actor_user_id`` is the account that
+    performed the transaction. They are intentionally separate so admin actions
+    are never falsely attributed to the resident whose room was selected.
+    """
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Recharge amount must be greater than zero")
+    amount = _money(amount)
+
+    def matches(existing: Recharge) -> bool:
+        return (
+            existing.meter_id == meter_id
+            and existing.user_id == user_id
+            and existing.amount == amount
+            and existing.actor_user_id == actor_user_id
+        )
+
     try:
         if idempotency_key:
             existing = db.scalar(select(Recharge).where(Recharge.idempotency_key == idempotency_key))
             if existing:
-                if existing.meter_id != meter_id or existing.user_id != user_id or existing.amount != amount:
+                if not matches(existing):
                     raise HTTPException(status_code=409, detail="Idempotency key already used for another request")
                 return existing
 
         meter = _locked_meter(db, meter_id)
+        if not meter.is_active or not meter.room.is_active:
+            raise HTTPException(status_code=404, detail="Active meter not found")
+
+        # Re-check after taking the per-meter lock to avoid double credits on retry.
         if idempotency_key:
-            # Another request for this meter may have committed while this one waited
-            # for the row lock, so check again inside the serialized transaction.
             existing = db.scalar(select(Recharge).where(Recharge.idempotency_key == idempotency_key))
             if existing:
-                if existing.meter_id != meter_id or existing.user_id != user_id or existing.amount != amount:
+                if not matches(existing):
                     raise HTTPException(status_code=409, detail="Idempotency key already used for another request")
                 db.rollback()
                 return existing
-        user = db.get(User, user_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-        if user.room_id != meter.room_id:
-            raise HTTPException(status_code=403, detail="User is not assigned to this meter's room")
 
-        amount = _money(amount)
+        target_user = db.get(User, user_id) if user_id is not None else None
+        if user_id is not None:
+            if target_user is None or target_user.role != "RESIDENT" or not target_user.is_active:
+                raise HTTPException(status_code=404, detail="Active tenant not found")
+            if target_user.room_id != meter.room_id:
+                raise HTTPException(status_code=403, detail="Tenant is not assigned to this meter's room")
+        elif not allow_empty_target:
+            raise HTTPException(status_code=422, detail="A tenant context is required for this recharge")
+
+        actor = db.get(User, actor_user_id) if actor_user_id is not None else None
+        if actor_user_id is not None and (actor is None or not actor.is_active):
+            raise HTTPException(status_code=401, detail="Transaction actor is not active")
+        if actor is not None and actor.role != "ADMIN":
+            if target_user is None or actor.id != target_user.id or actor.room_id != meter.room_id:
+                raise HTTPException(status_code=403, detail="Residents can recharge only their own room's meter")
+
         meter.current_balance = _money(meter.current_balance + amount)
         if meter.current_balance > 0:
             meter.power_status = True
         recharge = Recharge(
             meter_id=meter.id,
-            user_id=user.id,
+            user_id=target_user.id if target_user else None,
+            actor_user_id=actor.id if actor else None,
             amount=amount,
             status="SUCCESSFUL",
             idempotency_key=idempotency_key,
@@ -76,7 +111,8 @@ def recharge_meter(
         db.add(
             WalletLedger(
                 meter_id=meter.id,
-                user_id=user.id,
+                user_id=target_user.id if target_user else None,
+                actor_user_id=actor.id if actor else None,
                 entry_type="RECHARGE",
                 amount=amount,
                 balance_after=meter.current_balance,
@@ -95,7 +131,7 @@ def recharge_meter(
         if idempotency_key:
             existing = db.scalar(select(Recharge).where(Recharge.idempotency_key == idempotency_key))
             if existing:
-                if existing.meter_id == meter_id and existing.user_id == user_id and existing.amount == amount:
+                if matches(existing):
                     return existing
                 raise HTTPException(status_code=409, detail="Idempotency key already used for another request") from exc
         raise HTTPException(status_code=409, detail="Recharge conflicts with existing data") from exc

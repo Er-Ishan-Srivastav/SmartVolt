@@ -49,11 +49,12 @@ def demo_ids(test_session_factory: sessionmaker[Session]) -> dict[str, int]:
         room = Room(room_no="101")
         db.add(room)
         db.flush()
-        user = User(name="Ishan", room_id=room.id)
+        from app.security import hash_password
+        user = User(name="Ishan", username="ishan", password_hash=hash_password("resident123"), role="RESIDENT", room_id=room.id)
         other_room = Room(room_no="202")
         db.add(other_room)
         db.flush()
-        outside_user = User(name="Other tenant", room_id=other_room.id)
+        outside_user = User(name="Other tenant", username="otherresident", password_hash=hash_password("resident123"), role="RESIDENT", room_id=other_room.id)
         db.add_all([user, outside_user])
         db.flush()
         meter = Meter(
@@ -81,3 +82,13 @@ def demo_ids(test_session_factory: sessionmaker[Session]) -> dict[str, int]:
             "outside_user_id": outside_user.id,
             "meter_id": meter.id,
         }
+
+
+@pytest.fixture()
+def resident_headers(client: TestClient, demo_ids: dict[str, int]) -> dict[str, str]:
+    """Authenticate the ordinary data tests as the seeded resident."""
+    response = client.post("/api/v1/auth/login", json={"username": "ishan", "password": "resident123"})
+    assert response.status_code == 200, response.text
+    headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
+    client.headers.update(headers)
+    return headers
